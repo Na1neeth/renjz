@@ -8,7 +8,12 @@ from app.models.billing_item import BillingItem
 from app.models.enums import ActivityAction, OrderItemStatus, OrderStatus
 from app.models.payment import Payment
 from app.models.user import User
-from app.services.order_service import add_activity, load_billing_items
+from app.services.order_service import (
+    add_activity,
+    format_seat_label,
+    get_order_seat_numbers,
+    load_billing_items,
+)
 
 
 MONEY_STEP = Decimal("0.01")
@@ -22,6 +27,7 @@ def build_billing_snapshot(order) -> dict:
     existing_items = {item.order_item_id: item for item in load_billing_items(order)}
     lines: list[dict] = []
     updated_at = None
+    seat_numbers = get_order_seat_numbers(order)
 
     for item in sorted(order.items, key=lambda row: row.id):
         existing = existing_items.get(item.id)
@@ -59,6 +65,8 @@ def build_billing_snapshot(order) -> dict:
         "order_id": order.id,
         "table_id": order.table.id,
         "table_name": order.table.name,
+        "seat_numbers": seat_numbers,
+        "seat_label": format_seat_label(seat_numbers),
         "items": lines,
         "subtotal": float(subtotal),
         "discount": 0.0,
@@ -154,11 +162,12 @@ def save_billing(db: Session, order, billing_input: list[dict], discount: float,
         table=order.table,
         actor=actor,
         action_type=ActivityAction.BILLING_SAVED,
-        description="Saved manual billing draft",
+        description=f"Saved manual billing draft for {format_seat_label(get_order_seat_numbers(order))}",
         details={
             "subtotal": snapshot["subtotal"],
             "discount": snapshot["discount"],
             "final_total": snapshot["final_total"],
+            "seat_numbers": get_order_seat_numbers(order),
         },
     )
     db.flush()
@@ -214,12 +223,13 @@ def checkout_order(
         table=order.table,
         actor=actor,
         action_type=ActivityAction.PAYMENT_COMPLETED,
-        description="Payment completed and bill closed",
+        description=f"Payment completed and bill closed for {format_seat_label(get_order_seat_numbers(order))}",
         details={
             "subtotal": float(subtotal),
             "discount": float(discount_value),
             "final_total": float(final_total),
             "payment_method": payment.payment_method,
+            "seat_numbers": get_order_seat_numbers(order),
         },
     )
     db.flush()
@@ -259,8 +269,10 @@ def list_pending_billing_orders(db: Session) -> list[dict]:
                 "order_id": order.id,
                 "table_id": order.table.id,
                 "table_name": order.table.name,
+                "seat_numbers": get_order_seat_numbers(order),
+                "seat_label": format_seat_label(get_order_seat_numbers(order)),
                 "status": order.status.value,
-                "items_count": len(order.items),
+                "items_count": sum(item.quantity for item in order.items),
                 "subtotal": snapshot["subtotal"],
                 "updated_at": order.updated_at,
             }

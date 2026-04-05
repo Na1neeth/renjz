@@ -73,6 +73,9 @@ class OrderRead(BaseModel):
     id: int
     table_id: int
     table_name: str
+    service_cycle: int
+    seat_numbers: list[int]
+    seat_label: str
     status: OrderStatus
     opened_at: datetime
     updated_at: datetime
@@ -80,4 +83,3 @@ class OrderRead(BaseModel):
     items: list[OrderItemRead]
     activity_log: list[OrderActivityRead]
     payments: list[PaymentRead]
-

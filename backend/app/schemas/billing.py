@@ -42,6 +42,8 @@ class BillingSummaryRead(BaseModel):
     order_id: int
     table_id: int
     table_name: str
+    seat_numbers: list[int]
+    seat_label: str
     items: list[BillingItemRead]
     subtotal: float
     discount: float
@@ -53,6 +55,8 @@ class PendingBillingOrderRead(BaseModel):
     order_id: int
     table_id: int
     table_name: str
+    seat_numbers: list[int]
+    seat_label: str
     status: str
     items_count: int
     subtotal: float

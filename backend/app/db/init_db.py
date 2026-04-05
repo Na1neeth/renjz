@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select, text
+from sqlalchemy.orm import selectinload
 
 from app.core.security import get_password_hash
 from app.db.base import Base
@@ -18,6 +19,7 @@ from app.models.enums import (
 from app.models.order import Order
 from app.models.order_activity_log import OrderActivityLog
 from app.models.order_item import OrderItem
+from app.models.order_seat import OrderSeat
 from app.models.table import RestaurantTable
 from app.models.user import User
 
@@ -39,9 +41,17 @@ TABLE_LABELS = [
 ]
 
 
+def seat_count_for_table_name(table_name: str) -> int:
+    normalized = str(table_name or "").strip().upper()
+    if normalized.startswith("B") and normalized != "B5":
+        return 2
+    return 4
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     sync_postgres_enums()
+    sync_additive_schema()
     seed_data()
 
 
@@ -72,6 +82,45 @@ def sync_postgres_enums() -> None:
                 connection.execute(
                     text(f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{safe_value}'")
                 )
+
+
+def sync_additive_schema() -> None:
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS seat_count INTEGER"))
+        connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
+        connection.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
+
+
+def backfill_seat_runtime_data(db) -> None:
+    tables = list(
+        db.scalars(
+            select(RestaurantTable)
+            .order_by(RestaurantTable.id)
+            .options(selectinload(RestaurantTable.orders).selectinload(Order.seats))
+        )
+    )
+
+    for table in tables:
+        table.seat_count = seat_count_for_table_name(table.name)
+        if not table.service_cycle:
+            table.service_cycle = 1 if table.orders or table.status != TableStatus.EMPTY else 0
+
+    db.flush()
+
+    for table in tables:
+        for order in table.orders:
+            if not order.service_cycle:
+                order.service_cycle = table.service_cycle or 1
+            if order.seats:
+                continue
+            db.add_all(
+                [
+                    OrderSeat(order_id=order.id, seat_number=seat_number)
+                    for seat_number in range(1, table.seat_count + 1)
+                ]
+            )
+
+    db.flush()
 
 
 def seed_data() -> None:
@@ -115,14 +164,25 @@ def seed_data() -> None:
         for index, label in enumerate(TABLE_LABELS, start=1):
             legacy_name = f"Table {index}"
             if label in existing_tables:
+                existing_tables[label].seat_count = seat_count_for_table_name(label)
                 continue
             if legacy_name in existing_tables:
                 existing_tables[legacy_name].name = label
+                existing_tables[legacy_name].seat_count = seat_count_for_table_name(label)
                 continue
 
             status = TableStatus.EMPTY
-            db.add(RestaurantTable(name=label, status=status))
+            db.add(
+                RestaurantTable(
+                    name=label,
+                    status=status,
+                    seat_count=seat_count_for_table_name(label),
+                    service_cycle=0,
+                )
+            )
         db.flush()
+
+        backfill_seat_runtime_data(db)
 
         tables = list(db.scalars(select(RestaurantTable).order_by(RestaurantTable.id)))
         if db.scalar(select(Order.id).limit(1)):
@@ -133,6 +193,15 @@ def seed_data() -> None:
 
         running_order = Order(
             table_id=tables[1].id,
+            service_cycle=1,
+            status=OrderStatus.RUNNING,
+            opened_by_id=waiter.id,
+            opened_at=now,
+            updated_at=now,
+        )
+        split_order = Order(
+            table_id=tables[1].id,
+            service_cycle=1,
             status=OrderStatus.RUNNING,
             opened_by_id=waiter.id,
             opened_at=now,
@@ -140,15 +209,28 @@ def seed_data() -> None:
         )
         billing_order = Order(
             table_id=tables[4].id,
+            service_cycle=1,
             status=OrderStatus.BILLING,
             opened_by_id=waiter.id,
             opened_at=now,
             updated_at=now,
         )
         tables[1].status = TableStatus.RUNNING
+        tables[1].service_cycle = 1
         tables[4].status = TableStatus.RUNNING
-        db.add_all([running_order, billing_order])
+        tables[4].service_cycle = 1
+        db.add_all([running_order, split_order, billing_order])
         db.flush()
+
+        db.add_all(
+            [
+                OrderSeat(order_id=running_order.id, seat_number=1),
+                OrderSeat(order_id=running_order.id, seat_number=2),
+                OrderSeat(order_id=split_order.id, seat_number=3),
+                OrderSeat(order_id=billing_order.id, seat_number=1),
+                OrderSeat(order_id=billing_order.id, seat_number=2),
+            ]
+        )
 
         running_items = [
             OrderItem(
@@ -189,6 +271,20 @@ def seed_data() -> None:
                 updated_at=now,
             ),
         ]
+        split_items = [
+            OrderItem(
+                order_id=split_order.id,
+                item_name="Tomato soup",
+                quantity=1,
+                note="less salt",
+                kitchen_status=KitchenItemStatus.NEW,
+                item_status=OrderItemStatus.ACTIVE,
+                created_by_id=waiter.id,
+                updated_by_id=waiter.id,
+                created_at=now,
+                updated_at=now,
+            )
+        ]
         billing_items = [
             OrderItem(
                 order_id=billing_order.id,
@@ -228,7 +324,7 @@ def seed_data() -> None:
                 updated_at=now,
             ),
         ]
-        db.add_all(running_items + billing_items)
+        db.add_all(running_items + split_items + billing_items)
         db.flush()
 
         db.add_all(
@@ -278,8 +374,8 @@ def seed_data() -> None:
                     actor_name=waiter.display_name,
                     actor_role=waiter.role,
                     action_type=ActivityAction.TABLE_OPENED,
-                    description="Opened A2 for service",
-                    details={},
+                    description="Started Seats 1 + 2 on A2",
+                    details={"seat_numbers": [1, 2], "service_cycle": 1},
                 ),
                 OrderActivityLog(
                     order_id=running_order.id,
@@ -307,7 +403,7 @@ def seed_data() -> None:
                     item_name_after="Paneer curry",
                     quantity_after=1,
                     note_after="less spicy",
-                    details={"quantity": 1, "note": "less spicy"},
+                    details={"quantity": 1, "note": "less spicy", "seat_numbers": [1, 2]},
                 ),
                 OrderActivityLog(
                     order_id=running_order.id,
@@ -321,7 +417,31 @@ def seed_data() -> None:
                     item_name_after="Lime soda",
                     quantity_after=1,
                     note_after="no ice",
-                    details={"quantity": 1, "note": "no ice"},
+                    details={"quantity": 1, "note": "no ice", "seat_numbers": [1, 2]},
+                ),
+                OrderActivityLog(
+                    order_id=split_order.id,
+                    table_id=tables[1].id,
+                    actor_user_id=waiter.id,
+                    actor_name=waiter.display_name,
+                    actor_role=waiter.role,
+                    action_type=ActivityAction.TABLE_OPENED,
+                    description="Started Seat 3 on A2",
+                    details={"seat_numbers": [3], "service_cycle": 1},
+                ),
+                OrderActivityLog(
+                    order_id=split_order.id,
+                    table_id=tables[1].id,
+                    item_id=split_items[0].id,
+                    actor_user_id=waiter.id,
+                    actor_name=waiter.display_name,
+                    actor_role=waiter.role,
+                    action_type=ActivityAction.ITEM_ADDED,
+                    description="Added 1 x Tomato soup",
+                    item_name_after="Tomato soup",
+                    quantity_after=1,
+                    note_after="less salt",
+                    details={"quantity": 1, "note": "less salt", "seat_numbers": [3]},
                 ),
                 OrderActivityLog(
                     order_id=billing_order.id,
@@ -330,8 +450,8 @@ def seed_data() -> None:
                     actor_name=waiter.display_name,
                     actor_role=waiter.role,
                     action_type=ActivityAction.TABLE_OPENED,
-                    description="Opened B1 for service",
-                    details={},
+                    description="Started Seats 1 + 2 on B1",
+                    details={"seat_numbers": [1, 2], "service_cycle": 1},
                 ),
                 OrderActivityLog(
                     order_id=billing_order.id,
@@ -340,8 +460,8 @@ def seed_data() -> None:
                     actor_name=receptionist.display_name,
                     actor_role=receptionist.role,
                     action_type=ActivityAction.ORDER_STATUS_CHANGED,
-                    description="Moved order from running to billing",
-                    details={"from": "running", "to": "billing"},
+                    description="Moved Seats 1 + 2 from running to billing",
+                    details={"from": "running", "to": "billing", "seat_numbers": [1, 2]},
                 ),
             ]
         )

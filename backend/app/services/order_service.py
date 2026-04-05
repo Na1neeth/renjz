@@ -15,12 +15,14 @@ from app.models.enums import (
 from app.models.order import Order
 from app.models.order_activity_log import OrderActivityLog
 from app.models.order_item import OrderItem
+from app.models.order_seat import OrderSeat
 from app.models.payment import Payment
 from app.models.table import RestaurantTable
 from app.models.user import User
 
 
 ACTIVE_ORDER_STATUSES = (OrderStatus.RUNNING,)
+RESERVED_SEAT_ORDER_STATUSES = (OrderStatus.RUNNING, OrderStatus.BILLING, OrderStatus.CLOSED)
 
 
 def utcnow() -> datetime:
@@ -32,12 +34,11 @@ def load_table(db: Session, table_id: int) -> RestaurantTable:
         select(RestaurantTable)
         .where(RestaurantTable.id == table_id)
         .options(
-            selectinload(RestaurantTable.orders)
-            .selectinload(Order.items),
-            selectinload(RestaurantTable.orders)
-            .selectinload(Order.activities),
-            selectinload(RestaurantTable.orders)
-            .selectinload(Order.payments),
+            selectinload(RestaurantTable.orders).selectinload(Order.items),
+            selectinload(RestaurantTable.orders).selectinload(Order.activities),
+            selectinload(RestaurantTable.orders).selectinload(Order.payments),
+            selectinload(RestaurantTable.orders).selectinload(Order.billing_items),
+            selectinload(RestaurantTable.orders).selectinload(Order.seats),
         )
     )
     if not table:
@@ -55,6 +56,7 @@ def load_order(db: Session, order_id: int) -> Order:
             selectinload(Order.activities),
             selectinload(Order.billing_items),
             selectinload(Order.payments),
+            selectinload(Order.seats),
         )
     )
     if not order:
@@ -62,30 +64,75 @@ def load_order(db: Session, order_id: int) -> Order:
     return order
 
 
+def get_orders_for_current_cycle(table: RestaurantTable) -> list[Order]:
+    return [
+        order
+        for order in sorted(table.orders, key=lambda row: row.id)
+        if order.service_cycle == table.service_cycle
+    ]
+
+
+def get_active_orders_for_table(table: RestaurantTable) -> list[Order]:
+    return [
+        order
+        for order in get_orders_for_current_cycle(table)
+        if order.status in ACTIVE_ORDER_STATUSES
+    ]
+
+
 def get_active_order_for_table(table: RestaurantTable) -> Order | None:
-    for order in reversed(table.orders):
-        if order.status in ACTIVE_ORDER_STATUSES:
-            return order
-    return None
+    active_orders = get_active_orders_for_table(table)
+    return active_orders[-1] if active_orders else None
 
 
 def get_latest_order_for_table(table: RestaurantTable) -> Order | None:
     if not table.orders:
         return None
-    return list(sorted(table.orders, key=lambda order: order.id))[-1]
+    return sorted(table.orders, key=lambda order: order.id)[-1]
 
 
 def get_pending_billing_orders_for_table(table: RestaurantTable) -> list[Order]:
     return [
         order
-        for order in sorted(table.orders, key=lambda order: order.id, reverse=True)
+        for order in sorted(table.orders, key=lambda order: order.updated_at or order.id, reverse=True)
         if order.status == OrderStatus.BILLING
     ]
 
 
+def get_reserved_orders_for_table(table: RestaurantTable) -> list[Order]:
+    if table.status == TableStatus.EMPTY:
+        return []
+    return [
+        order
+        for order in get_orders_for_current_cycle(table)
+        if order.status in RESERVED_SEAT_ORDER_STATUSES
+    ]
+
+
+def get_order_seat_numbers(order: Order) -> list[int]:
+    return sorted({seat.seat_number for seat in order.seats})
+
+
+def format_seat_label(seat_numbers: list[int]) -> str:
+    if not seat_numbers:
+        return "No seats"
+    if len(seat_numbers) == 1:
+        return f"Seat {seat_numbers[0]}"
+    return f"Seats {' + '.join(str(number) for number in seat_numbers)}"
+
+
+def get_reserved_seat_map(table: RestaurantTable) -> dict[int, Order]:
+    seat_map: dict[int, Order] = {}
+    for order in sorted(
+        get_reserved_orders_for_table(table),
+        key=lambda row: (row.status != OrderStatus.RUNNING, row.id),
+    ):
+        for seat_number in get_order_seat_numbers(order):
+            seat_map.setdefault(seat_number, order)
+    return seat_map
+
+
 def get_table_floor_status(table: RestaurantTable) -> TableStatus:
-    if get_active_order_for_table(table):
-        return TableStatus.RUNNING
     return TableStatus.EMPTY if table.status == TableStatus.EMPTY else TableStatus.RUNNING
 
 
@@ -95,12 +142,11 @@ def list_tables(db: Session) -> list[RestaurantTable]:
             select(RestaurantTable)
             .order_by(RestaurantTable.id)
             .options(
-                selectinload(RestaurantTable.orders)
-                .selectinload(Order.items),
-                selectinload(RestaurantTable.orders)
-                .selectinload(Order.activities),
-                selectinload(RestaurantTable.orders)
-                .selectinload(Order.payments),
+                selectinload(RestaurantTable.orders).selectinload(Order.items),
+                selectinload(RestaurantTable.orders).selectinload(Order.activities),
+                selectinload(RestaurantTable.orders).selectinload(Order.payments),
+                selectinload(RestaurantTable.orders).selectinload(Order.billing_items),
+                selectinload(RestaurantTable.orders).selectinload(Order.seats),
             )
         )
     )
@@ -108,14 +154,14 @@ def list_tables(db: Session) -> list[RestaurantTable]:
 
 def list_active_kitchen_tables(db: Session) -> list[RestaurantTable]:
     tables = list_tables(db)
-    return [table for table in tables if get_active_order_for_table(table)]
+    return [table for table in tables if get_active_orders_for_table(table)]
 
 
 def ensure_order_is_editable(order: Order) -> None:
     if order.status != OrderStatus.RUNNING:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This order is no longer editable by the waiter",
+            detail="This check is no longer editable by the waiter",
         )
 
 
@@ -123,7 +169,7 @@ def ensure_order_is_not_closed(order: Order) -> None:
     if order.status == OrderStatus.CLOSED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This order is already closed",
+            detail="This check is already closed",
         )
 
 
@@ -132,6 +178,23 @@ def ensure_item_belongs_to_order(order: Order, item_id: int) -> OrderItem:
         if item.id == item_id:
             return item
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order item not found")
+
+
+def validate_seat_numbers(table: RestaurantTable, seat_numbers: list[int]) -> list[int]:
+    normalized = sorted({int(number) for number in seat_numbers})
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select at least one seat for this check",
+        )
+
+    invalid = [number for number in normalized if number < 1 or number > table.seat_count]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Seat numbers must be between 1 and {table.seat_count}",
+        )
+    return normalized
 
 
 def add_activity(
@@ -224,10 +287,14 @@ def serialize_order(order: Order) -> dict:
     items = sorted(order.items, key=lambda item: item.id)
     activities = sorted(order.activities, key=lambda log: log.id, reverse=True)
     payments = sorted(order.payments, key=lambda payment: payment.id, reverse=True)
+    seat_numbers = get_order_seat_numbers(order)
     return {
         "id": order.id,
         "table_id": order.table.id,
         "table_name": order.table.name,
+        "service_cycle": order.service_cycle,
+        "seat_numbers": seat_numbers,
+        "seat_label": format_seat_label(seat_numbers),
         "status": order.status,
         "opened_at": order.opened_at,
         "updated_at": order.updated_at,
@@ -239,60 +306,112 @@ def serialize_order(order: Order) -> dict:
 
 
 def serialize_table(table: RestaurantTable) -> dict:
-    active_order = get_active_order_for_table(table)
+    active_orders = get_active_orders_for_table(table)
+    active_order = active_orders[-1] if active_orders else None
     pending_billing_orders = get_pending_billing_orders_for_table(table)
     latest_order = get_latest_order_for_table(table)
     floor_status = get_table_floor_status(table)
-    active_items: list[OrderItem] = []
-    ready_items: list[OrderItem] = []
+    reserved_seat_map = get_reserved_seat_map(table)
+
+    active_items = [
+        item
+        for order in active_orders
+        for item in order.items
+        if item.item_status == OrderItemStatus.ACTIVE
+    ]
+    ready_items = [
+        item
+        for item in active_items
+        if item.kitchen_status == KitchenItemStatus.READY
+    ]
+
     last_activity_at = table.updated_at
-    if active_order:
-        active_items = [item for item in active_order.items if item.item_status == OrderItemStatus.ACTIVE]
-        ready_items = [
-            item
-            for item in active_items
-            if item.kitchen_status == KitchenItemStatus.READY
-        ]
-        last_activity_at = active_order.updated_at
+    if active_orders:
+        last_activity_at = max(order.updated_at for order in active_orders if order.updated_at)
     elif pending_billing_orders:
         last_activity_at = pending_billing_orders[0].updated_at
     elif latest_order and latest_order.updated_at and latest_order.updated_at > last_activity_at:
         last_activity_at = latest_order.updated_at
 
+    seats = []
+    for seat_number in range(1, table.seat_count + 1):
+        order = reserved_seat_map.get(seat_number)
+        seat_numbers = get_order_seat_numbers(order) if order else []
+        seats.append(
+            {
+                "seat_number": seat_number,
+                "status": "occupied" if order else "available",
+                "order_id": order.id if order else None,
+                "seat_label": format_seat_label(seat_numbers) if order else None,
+            }
+        )
+
     return {
         "id": table.id,
         "name": table.name,
+        "seat_count": table.seat_count,
+        "service_cycle": table.service_cycle,
         "status": floor_status,
         "active_order_id": active_order.id if active_order else None,
+        "active_orders_count": len(active_orders),
         "pending_bills_count": len(pending_billing_orders),
         "active_items_count": sum(item.quantity for item in active_items),
         "ready_items_count": sum(item.quantity for item in ready_items),
         "last_activity_at": last_activity_at,
         "current_order": serialize_order(active_order) if active_order else None,
+        "active_orders": [serialize_order(order) for order in active_orders],
+        "seats": seats,
     }
 
 
-def open_table(db: Session, table: RestaurantTable, actor: User) -> Order:
-    active_order = get_active_order_for_table(table)
-    if active_order:
-        return active_order
+def open_table(db: Session, table: RestaurantTable, actor: User) -> RestaurantTable:
+    del actor
+    if table.status == TableStatus.EMPTY:
+        table.status = TableStatus.RUNNING
+        table.service_cycle += 1
+        table.updated_at = utcnow()
+        db.flush()
+    return table
 
-    if get_table_floor_status(table) != TableStatus.EMPTY:
+
+def create_check_for_table(
+    db: Session,
+    table: RestaurantTable,
+    seat_numbers: list[int],
+    actor: User,
+) -> Order:
+    if table.status == TableStatus.EMPTY:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Waiter must mark this table empty before opening it again",
+            detail="Open the table before starting a seat check",
+        )
+
+    normalized_seats = validate_seat_numbers(table, seat_numbers)
+    reserved_seat_map = get_reserved_seat_map(table)
+    conflicting = [number for number in normalized_seats if number in reserved_seat_map]
+    if conflicting:
+        conflict_order = reserved_seat_map[conflicting[0]]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{format_seat_label(conflicting)} is already part of {format_seat_label(get_order_seat_numbers(conflict_order))}",
         )
 
     now = utcnow()
     order = Order(
         table_id=table.id,
+        service_cycle=table.service_cycle,
         status=OrderStatus.RUNNING,
         opened_by_id=actor.id,
         opened_at=now,
         updated_at=now,
     )
     db.add(order)
-    table.status = TableStatus.RUNNING
+    db.flush()
+
+    db.add_all(
+        [OrderSeat(order_id=order.id, seat_number=seat_number) for seat_number in normalized_seats]
+    )
+    table.updated_at = now
     db.flush()
 
     add_activity(
@@ -301,24 +420,25 @@ def open_table(db: Session, table: RestaurantTable, actor: User) -> Order:
         table=table,
         actor=actor,
         action_type=ActivityAction.TABLE_OPENED,
-        description=f"Opened {table.name} for service",
-        details={"table_status": table.status.value},
+        description=f"Started {format_seat_label(normalized_seats)} on {table.name}",
+        details={"seat_numbers": normalized_seats, "service_cycle": table.service_cycle},
     )
     db.flush()
     return order
 
 
 def mark_table_empty(db: Session, table: RestaurantTable, actor: User) -> RestaurantTable:
-    active_order = get_active_order_for_table(table)
-    if active_order:
+    active_orders = get_active_orders_for_table(table)
+    if active_orders:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This table still has an active order",
+            detail="This table still has active seat checks",
         )
-    if get_table_floor_status(table) == TableStatus.EMPTY:
+    if table.status == TableStatus.EMPTY:
         return table
 
-    latest_order = get_pending_billing_orders_for_table(table)[0] if get_pending_billing_orders_for_table(table) else get_latest_order_for_table(table)
+    current_cycle_orders = get_orders_for_current_cycle(table)
+    latest_order = current_cycle_orders[-1] if current_cycle_orders else None
     table.status = TableStatus.EMPTY
     table.updated_at = utcnow()
     db.flush()
@@ -331,7 +451,7 @@ def mark_table_empty(db: Session, table: RestaurantTable, actor: User) -> Restau
             actor=actor,
             action_type=ActivityAction.TABLE_CLOSED,
             description=f"Waiter marked {table.name} empty for the next guests",
-            details={"to": "empty"},
+            details={"to": "empty", "service_cycle": table.service_cycle},
         )
         db.flush()
     return table
@@ -367,9 +487,9 @@ def add_item_to_order(
         table=order.table,
         actor=actor,
         action_type=ActivityAction.ITEM_ADDED,
-        description=f"Added {quantity} x {item.item_name}",
+        description=f"Added {quantity} x {item.item_name} to {format_seat_label(get_order_seat_numbers(order))}",
         item=item,
-        details={"quantity": quantity, "note": item.note},
+        details={"quantity": quantity, "note": item.note, "seat_numbers": get_order_seat_numbers(order)},
         quantity_after=quantity,
         note_after=item.note,
         item_name_after=item.item_name,
@@ -413,11 +533,12 @@ def update_order_item(
         table=order.table,
         actor=actor,
         action_type=ActivityAction.ITEM_UPDATED,
-        description=f"Updated {previous_name}",
+        description=f"Updated {previous_name} on {format_seat_label(get_order_seat_numbers(order))}",
         item=item,
         details={
             "from": {"name": previous_name, "quantity": previous_quantity, "note": previous_note},
             "to": {"name": item.item_name, "quantity": item.quantity, "note": item.note},
+            "seat_numbers": get_order_seat_numbers(order),
         },
         quantity_before=previous_quantity,
         quantity_after=item.quantity,
@@ -448,9 +569,9 @@ def cancel_order_item(db: Session, order: Order, item: OrderItem, actor: User) -
         table=order.table,
         actor=actor,
         action_type=ActivityAction.ITEM_CANCELLED,
-        description=f"Cancelled {item.quantity} x {item.item_name}",
+        description=f"Cancelled {item.quantity} x {item.item_name} on {format_seat_label(get_order_seat_numbers(order))}",
         item=item,
-        details={"quantity": item.quantity, "note": item.note},
+        details={"quantity": item.quantity, "note": item.note, "seat_numbers": get_order_seat_numbers(order)},
         quantity_before=item.quantity,
         quantity_after=item.quantity,
         note_before=item.note,
@@ -487,9 +608,13 @@ def update_kitchen_status(
         table=order.table,
         actor=actor,
         action_type=ActivityAction.KITCHEN_STATUS_CHANGED,
-        description=f"Kitchen marked {item.item_name} as {kitchen_status.value}",
+        description=f"Kitchen marked {item.item_name} for {format_seat_label(get_order_seat_numbers(order))} as {kitchen_status.value}",
         item=item,
-        details={"from": previous_status.value, "to": kitchen_status.value},
+        details={
+            "from": previous_status.value,
+            "to": kitchen_status.value,
+            "seat_numbers": get_order_seat_numbers(order),
+        },
         item_name_after=item.item_name,
     )
     db.flush()
@@ -510,20 +635,30 @@ def update_order_status(
         )
 
     previous_status = order.status
-    active_order = get_active_order_for_table(order.table)
-    if (
-        new_status == OrderStatus.RUNNING
-        and active_order
-        and active_order.id != order.id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This table already has a newer running order",
-        )
+    seat_numbers = get_order_seat_numbers(order)
+    if new_status == OrderStatus.RUNNING:
+        if order.table.status == TableStatus.EMPTY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This table was already cleared for the next guests",
+            )
+        if order.service_cycle != order.table.service_cycle:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This bill belongs to an older table session",
+            )
+        active_orders = [row for row in get_active_orders_for_table(order.table) if row.id != order.id]
+        for active_order in active_orders:
+            if set(seat_numbers) & set(get_order_seat_numbers(active_order)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Those seats already have a newer running check",
+                )
 
     order.status = new_status
-    if new_status == OrderStatus.RUNNING or order.table.status != TableStatus.EMPTY:
+    if order.table.status != TableStatus.EMPTY:
         order.table.status = TableStatus.RUNNING
+    order.table.updated_at = utcnow()
     touch_order(order)
     db.flush()
 
@@ -534,8 +669,12 @@ def update_order_status(
             table=order.table,
             actor=actor,
             action_type=ActivityAction.ORDER_STATUS_CHANGED,
-            description=f"Moved order from {previous_status.value} to {new_status.value}",
-            details={"from": previous_status.value, "to": new_status.value},
+            description=f"Moved {format_seat_label(seat_numbers)} from {previous_status.value} to {new_status.value}",
+            details={
+                "from": previous_status.value,
+                "to": new_status.value,
+                "seat_numbers": seat_numbers,
+            },
         )
         db.flush()
     return order

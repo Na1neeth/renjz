@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -12,6 +12,7 @@ class Order(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     table_id: Mapped[int] = mapped_column(ForeignKey("tables.id"), index=True, nullable=False)
+    service_cycle: Mapped[int] = mapped_column(Integer, default=1, nullable=False, index=True)
     status: Mapped[OrderStatus] = mapped_column(
         Enum(OrderStatus), default=OrderStatus.RUNNING, nullable=False, index=True
     )
@@ -29,4 +30,4 @@ class Order(TimestampMixin, Base):
     activities = relationship("OrderActivityLog", back_populates="order", order_by="OrderActivityLog.id")
     billing_items = relationship("BillingItem", back_populates="order", order_by="BillingItem.id")
     payments = relationship("Payment", back_populates="order", order_by="Payment.id")
-
+    seats = relationship("OrderSeat", back_populates="order", order_by="OrderSeat.seat_number", cascade="all, delete-orphan")

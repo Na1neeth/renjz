@@ -7,6 +7,7 @@ const state = {
   tables: [],
   selectedTableId: null,
   selectedTable: null,
+  selectedSeatNumbers: [],
   pendingBills: [],
   selectedReceptionOrderId: null,
   selectedReceptionOrder: null,
@@ -191,7 +192,7 @@ function renderRoleView() {
 
 function renderWaiterView() {
   const table = state.selectedTable;
-  const order = table?.current_order;
+  const activeOrders = table?.active_orders || [];
   return `
     <main class="view-grid service-layout">
       <section class="panel">
@@ -205,66 +206,50 @@ function renderWaiterView() {
             ? `
             <div class="badge-row">
               ${renderBadge(table.status)}
+              <span class="badge running">${table.active_orders_count} checks</span>
               ${table.pending_bills_count ? `<span class="badge billing">${table.pending_bills_count} pending</span>` : ""}
-              ${order ? `<span class="badge ${order.status}">Order ${order.id}</span>` : ""}
             </div>
             <h2 class="panel-title" style="margin-top: 14px;">${escapeHtml(table.name)}</h2>
             <div class="meta-stack">
+              <span>Seat capacity: ${table.seat_count}</span>
+              <span>Live checks: ${table.active_orders_count}</span>
               <span>Active items: ${table.active_items_count}</span>
               <span>Ready from kitchen: ${table.ready_items_count}</span>
               <span>Pending bills at reception: ${table.pending_bills_count}</span>
               <span>Last activity: ${formatDateTime(table.last_activity_at)}</span>
             </div>
             ${
-              !order
+              table.status === "empty"
                 ? renderWaiterEmptyState(table)
                 : `
+                ${renderSeatPlanner(table)}
                 ${
-                  order.status === "billing"
-                    ? `<div class="status-banner alert">Reception has moved this table into billing. Waiter editing is locked.</div>`
-                    : ""
-                }
-                ${
-                  order.status === "running"
-                    ? `
-                    <div class="order-box" style="margin-top: 18px;">
-                      <h3 class="section-title">Add item</h3>
-                      <form id="add-item-form" class="form-grid">
-                        <div class="field-grid span-6">
-                          <label class="label" for="item-name">Item</label>
-                          <input class="input" id="item-name" name="item_name" placeholder="e.g. Butter naan" required />
-                        </div>
-                        <div class="field-grid span-3">
-                          <label class="label" for="item-quantity">Qty</label>
-                          <input class="input" id="item-quantity" name="quantity" type="number" min="1" max="99" value="1" required />
-                        </div>
-                        <div class="field-grid span-12">
-                          <label class="label" for="item-note">Note</label>
-                          <input class="input" id="item-note" name="note" placeholder="less spicy, no ice, extra crispy..." />
-                        </div>
-                        <div class="span-12">
-                          <button class="primary-btn" type="submit" data-order-id="${order.id}">Send to kitchen</button>
-                        </div>
-                      </form>
-                    </div>
-                  `
-                    : ""
-                }
-                <div class="order-box" style="margin-top: 18px;">
-                  <h3 class="section-title">Current order</h3>
-                  <div class="item-list">
-                    ${order.items.length ? order.items.map((item) => renderWaiterItemCard(order, item)).join("") : `<div class="empty-box"><p class="muted">No items added yet.</p></div>`}
-                  </div>
-                  ${
-                    order.status === "running"
-                      ? `
-                      <div class="action-row" style="margin-top: 16px;">
-                        <button class="secondary-btn" type="button" id="move-billing-btn" data-order-id="${order.id}">Send bill to reception</button>
+                  activeOrders.length
+                    ? activeOrders.map((order) => renderWaiterCheckCard(order)).join("")
+                    : `
+                      <div class="empty-box" style="margin-top: 18px;">
+                        <h3 class="section-title">No live checks yet</h3>
+                        <p class="muted">
+                          ${
+                            getAvailableSeats(table).length
+                              ? "Select one or more free seats above to start a check."
+                              : "Every seat in this table cycle is already attached to a bill or closed check."
+                          }
+                        </p>
                       </div>
                     `
-                      : ""
-                  }
-                </div>
+                }
+                ${
+                  !activeOrders.length
+                    ? `
+                      <div class="empty-box" style="margin-top: 18px;">
+                        <h3 class="section-title">Floor release</h3>
+                        <p class="muted">Mark the table empty only after everyone at this table has physically left.</p>
+                        <button class="primary-btn" id="mark-empty-btn" data-table-id="${table.id}">Mark table empty</button>
+                      </div>
+                    `
+                    : ""
+                }
               `
             }
           `
@@ -287,23 +272,32 @@ function renderKitchenView() {
           state.kitchenTables.length
             ? state.kitchenTables
                 .map((table) => {
-                  const order = table.current_order;
-                  const activeItems = order.items.filter((item) => item.item_status === "active");
-                  const cancelledItems = order.items.filter((item) => item.item_status === "cancelled");
+                  const entries = table.active_orders.flatMap((order) =>
+                    order.items.map((item) => ({ order, item })),
+                  );
+                  const activeItems = entries.filter((entry) => entry.item.item_status === "active");
+                  const cancelledItems = entries.filter((entry) => entry.item.item_status === "cancelled");
+                  const latestUpdate = table.active_orders.reduce((latest, order) => {
+                    if (!latest) {
+                      return order.updated_at;
+                    }
+                    return new Date(order.updated_at) > new Date(latest) ? order.updated_at : latest;
+                  }, null);
                   return `
                     <article class="order-box kitchen-table-card">
                       <div class="badge-row">
                         <span class="badge running">${escapeHtml(table.name)}</span>
+                        <span class="badge billing">${table.active_orders_count} checks</span>
                         <span class="badge ready">${table.ready_items_count} ready</span>
                       </div>
-                      <h3 class="section-title" style="margin-top: 12px;">${activeItems.length} active items</h3>
+                      <h3 class="section-title" style="margin-top: 12px;">${table.active_items_count} active portions</h3>
                       <div class="meta-stack kitchen-meta">
-                        <span>Updated: ${formatDateTime(order.updated_at)}</span>
+                        <span>Updated: ${formatDateTime(latestUpdate)}</span>
                         ${cancelledItems.length ? `<span>${cancelledItems.length} cancelled</span>` : ""}
                       </div>
                       <div class="item-list" style="margin-top: 16px;">
-                        ${activeItems.map((item) => renderKitchenItemCard(order.id, item)).join("")}
-                        ${cancelledItems.map((item) => renderKitchenItemCard(order.id, item)).join("")}
+                        ${activeItems.map((entry) => renderKitchenItemCard(entry.order, entry.item)).join("")}
+                        ${cancelledItems.map((entry) => renderKitchenItemCard(entry.order, entry.item)).join("")}
                       </div>
                     </article>
                   `;
@@ -318,7 +312,7 @@ function renderKitchenView() {
 
 function renderReceptionView() {
   const table = state.selectedTable;
-  const runningOrder = table?.current_order;
+  const runningOrders = table?.active_orders || [];
   const billingOrder = state.selectedReceptionOrder;
   const billing = state.billing;
   const pendingBillsForTable = table ? getPendingBillsForTable(table.id) : [];
@@ -336,28 +330,29 @@ function renderReceptionView() {
             <section class="table-detail-card service-detail-panel" id="table-detail-panel">
               <div class="badge-row">
                 ${renderBadge(table.status)}
-                ${runningOrder ? `<span class="badge ${runningOrder.status}">Live order ${runningOrder.id}</span>` : ""}
+                ${runningOrders.length ? `<span class="badge running">${runningOrders.length} live checks</span>` : ""}
                 ${table.pending_bills_count ? `<span class="badge billing">${table.pending_bills_count} pending</span>` : ""}
               </div>
               <h2 class="panel-title" style="margin-top: 14px;">${escapeHtml(table.name)}</h2>
               <div class="meta-stack">
+                <span>Seat capacity: ${table.seat_count}</span>
+                <span>Live checks: ${table.active_orders_count}</span>
                 <span>Active items: ${table.active_items_count}</span>
                 <span>Ready from kitchen: ${table.ready_items_count}</span>
                 <span>Pending bills at reception: ${table.pending_bills_count}</span>
                 <span>Last activity: ${formatDateTime(table.last_activity_at)}</span>
               </div>
               ${
-                runningOrder
+                runningOrders.length
                   ? `
-                    <div class="meta-stack" style="margin-top: 16px;">
-                      <span>Opened: ${formatDateTime(runningOrder.opened_at)}</span>
-                      <span>Current status: ${capitalize(runningOrder.status)}</span>
+                    <div class="item-list" style="margin-top: 16px;">
+                      ${runningOrders.map(renderReceptionLiveCheckCard).join("")}
                     </div>
                     <div class="status-banner info" style="margin-top: 16px;">
                       ${
                         pendingBillsForTable.length
-                          ? "Waiter is still serving this table, and an older bill from the same table is already waiting in the queue below."
-                          : "Waiter is still serving this table. When guests ask for the bill, the waiter will send it to the billing queue below."
+                          ? "Waiter is still serving this table, and one or more older seat checks from the same table are already waiting in the queue below."
+                          : "Waiter is still serving this table. Each seat check will appear in the billing queue separately after the waiter sends it."
                       }
                     </div>
                   `
@@ -394,9 +389,9 @@ function renderReceptionView() {
               <div class="split-header">
                 <div>
                   <h3 class="section-title">Manual billing</h3>
-                  <p class="muted">${escapeHtml(billing.table_name)} · Order ${billingOrder.id} · ${capitalize(billingOrder.status)}</p>
+                  <p class="muted">${escapeHtml(billing.table_name)} · ${escapeHtml(billing.seat_label)} · Check ${billingOrder.id} · ${capitalize(billingOrder.status)}</p>
                 </div>
-                <span class="badge billing">${escapeHtml(billing.table_name)}</span>
+                <span class="badge billing">${escapeHtml(billing.seat_label)}</span>
               </div>
               <form id="billing-form">
                 <div class="billing-grid">
@@ -480,6 +475,7 @@ function renderTableButton(table, active) {
       </div>
       <h4>${escapeHtml(table.name)}</h4>
       <div class="meta-stack">
+        <span>Checks: ${table.active_orders_count}</span>
         <span>Items: ${table.active_items_count}</span>
         <span>Ready: ${table.ready_items_count}</span>
         <span>Pending: ${table.pending_bills_count}</span>
@@ -536,6 +532,10 @@ function getTableByName(tableName) {
   );
 }
 
+function getAvailableSeats(table) {
+  return (table?.seats || []).filter((seat) => seat.status === "available");
+}
+
 function normalizeTableName(tableName) {
   return String(tableName || "").trim().toUpperCase();
 }
@@ -546,6 +546,118 @@ function legacyTableNameToLabel(tableName) {
     return null;
   }
   return TABLE_LABELS_BY_INDEX[Number(match[1])] || null;
+}
+
+function renderSeatPlanner(table) {
+  const availableSeats = getAvailableSeats(table);
+  const selectedLabel = state.selectedSeatNumbers.length
+    ? formatSeatLabel(state.selectedSeatNumbers)
+    : "";
+  return `
+    <div class="order-box" style="margin-top: 18px;">
+      <div class="split-header">
+        <div>
+          <h3 class="section-title">Seat planner</h3>
+          <p class="muted">Tap free seats to start a separate check for the same table.</p>
+        </div>
+        <span class="badge running">${table.seat_count} seats</span>
+      </div>
+      <div class="seat-grid" style="margin-top: 16px;">
+        ${table.seats.map(renderSeatChip).join("")}
+      </div>
+      ${
+        availableSeats.length
+          ? `
+            <div class="status-banner info" style="margin-top: 16px;">
+              ${
+                state.selectedSeatNumbers.length
+                  ? `${escapeHtml(selectedLabel)} selected for a new check.`
+                  : "Select one or more free seats to start a new check."
+              }
+            </div>
+            <div class="action-row" style="margin-top: 16px;">
+              <button class="primary-btn" type="button" id="start-check-btn" data-table-id="${table.id}" ${state.selectedSeatNumbers.length ? "" : "disabled"}>
+                ${state.selectedSeatNumbers.length ? `Start ${escapeHtml(selectedLabel)}` : "Start selected check"}
+              </button>
+            </div>
+          `
+          : `<div class="footer-note">All seats in this table cycle are already attached to a live, billing, or closed check.</div>`
+      }
+    </div>
+  `;
+}
+
+function renderSeatChip(seat) {
+  const selected = state.selectedSeatNumbers.includes(seat.seat_number);
+  const clickable = seat.status === "available";
+  return `
+    <button
+      class="seat-chip ${clickable ? "available" : "occupied"} ${selected ? "selected" : ""}"
+      type="button"
+      data-seat-number="${seat.seat_number}"
+      ${clickable ? "" : "disabled"}
+    >
+      <strong>Seat ${seat.seat_number}</strong>
+      <span>${escapeHtml(clickable ? "Free" : seat.seat_label || "Reserved")}</span>
+    </button>
+  `;
+}
+
+function renderWaiterCheckCard(order) {
+  const activeLines = order.items.filter((item) => item.item_status === "active").length;
+  return `
+    <div class="order-box" style="margin-top: 18px;">
+      <div class="split-header">
+        <div>
+          <div class="badge-row">
+            <span class="badge running">${escapeHtml(order.seat_label)}</span>
+            <span class="badge ${order.status}">${capitalize(order.status)}</span>
+            <span class="badge empty">Check ${order.id}</span>
+          </div>
+          <h3 class="section-title" style="margin-top: 12px;">${escapeHtml(order.seat_label)}</h3>
+          <div class="meta-stack">
+            <span>Opened: ${formatDateTime(order.opened_at)}</span>
+            <span>${activeLines} active lines</span>
+          </div>
+        </div>
+      </div>
+      ${
+        order.status === "running"
+          ? `
+            <form class="form-grid js-add-item-form" data-order-id="${order.id}" style="margin-top: 18px;">
+              <div class="field-grid span-6">
+                <label class="label">Item</label>
+                <input class="input" name="item_name" placeholder="e.g. Butter naan" required />
+              </div>
+              <div class="field-grid span-3">
+                <label class="label">Qty</label>
+                <input class="input" name="quantity" type="number" min="1" max="99" value="1" required />
+              </div>
+              <div class="field-grid span-12">
+                <label class="label">Note</label>
+                <input class="input" name="note" placeholder="less spicy, no ice, extra crispy..." />
+              </div>
+              <div class="span-12">
+                <button class="primary-btn" type="submit">Send to kitchen</button>
+              </div>
+            </form>
+          `
+          : `<div class="status-banner alert" style="margin-top: 18px;">This check is already in billing or closed.</div>`
+      }
+      <div class="item-list" style="margin-top: 18px;">
+        ${order.items.length ? order.items.map((item) => renderWaiterItemCard(order, item)).join("") : `<div class="empty-box"><p class="muted">No items added yet.</p></div>`}
+      </div>
+      ${
+        order.status === "running"
+          ? `
+            <div class="action-row" style="margin-top: 16px;">
+              <button class="secondary-btn js-send-bill-btn" type="button" data-order-id="${order.id}">Send bill to reception</button>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
 }
 
 function renderWaiterItemCard(order, item) {
@@ -584,7 +696,7 @@ function renderWaiterItemCard(order, item) {
   `;
 }
 
-function renderKitchenItemCard(orderId, item) {
+function renderKitchenItemCard(order, item) {
   const displayStatus = kitchenDisplayStatus(item);
   return `
     <div class="item-card kitchen-item-card ${item.item_status === "cancelled" ? "cancelled" : ""} ${flashClass(item.id)}">
@@ -594,6 +706,7 @@ function renderKitchenItemCard(orderId, item) {
       </div>
       <h4 style="margin-top: 10px;">${escapeHtml(item.item_name)}</h4>
       <div class="meta-stack kitchen-item-meta">
+        <span>${escapeHtml(order.seat_label)} · Check ${order.id}</span>
         <span>${item.note ? escapeHtml(item.note) : "No special note"}</span>
       </div>
       ${
@@ -605,7 +718,7 @@ function renderKitchenItemCard(orderId, item) {
                 (statusLabel) => `
                   <button
                     class="status-btn ${statusLabel === displayStatus ? "secondary-btn" : "ghost-btn"}"
-                    data-kitchen-order-id="${orderId}"
+                    data-kitchen-order-id="${order.id}"
                     data-kitchen-item-id="${item.id}"
                     data-kitchen-status="${statusLabel}"
                   >
@@ -661,30 +774,17 @@ function renderHistoryRow(entry) {
 }
 
 function renderWaiterEmptyState(table) {
-  const occupied = table.status === "running";
-  const title = occupied
-    ? table.pending_bills_count
-      ? "Bill is with reception"
-      : "Table still occupied"
-    : table.pending_bills_count
-      ? "Table is free"
-      : "No running order";
-  const message = occupied
-    ? table.pending_bills_count
-      ? "Reception is handling the bill. Mark this table empty as soon as the guests physically leave."
-      : "Mark this table empty when the guests physically leave, even if payment is still happening."
-    : table.pending_bills_count
-      ? "This table is ready for the next guests. Reception is still closing the previous bill separately."
-      : "This table is available. Open it when a party sits down.";
-  const action = occupied
-    ? `<button class="primary-btn" id="mark-empty-btn" data-table-id="${table.id}">Mark table empty</button>`
-    : `<button class="primary-btn" id="open-table-btn" data-table-id="${table.id}">Open table</button>`;
-
   return `
     <div class="empty-box" style="margin-top: 18px;">
-      <h3 class="section-title">${title}</h3>
-      <p class="muted">${message}</p>
-      ${action}
+      <h3 class="section-title">Table is available</h3>
+      <p class="muted">
+        ${
+          table.pending_bills_count
+            ? "This table is free for new guests. Older bills from earlier service are still waiting at reception."
+            : "Open the table first, then choose the seats that belong to each payment group."
+        }
+      </p>
+      <button class="primary-btn" id="open-table-btn" data-table-id="${table.id}">Open table</button>
     </div>
   `;
 }
@@ -692,8 +792,8 @@ function renderWaiterEmptyState(table) {
 function renderPendingBillCard(order) {
   const selected = order.order_id === state.selectedReceptionOrderId;
   const table = state.tables.find((entry) => entry.id === order.table_id);
-  const liveOrderText = table?.active_order_id
-    ? `Live order ${table.active_order_id} is active now.`
+  const liveOrderText = table?.active_orders_count
+    ? `${table.active_orders_count} live checks are active now.`
     : table?.status === "empty"
       ? "Table is free for next guests."
       : "Waiter still needs to release this table.";
@@ -705,15 +805,31 @@ function renderPendingBillCard(order) {
     >
       <div class="badge-row">
         <span class="badge billing">${escapeHtml(order.table_name)}</span>
-        <span class="badge running">Order ${order.order_id}</span>
+        <span class="badge running">${escapeHtml(order.seat_label)}</span>
       </div>
       <h4>${moneyLabel(order.subtotal)}</h4>
       <div class="meta-stack">
-        <span>${order.items_count} items</span>
+        <span>Check ${order.order_id}</span>
+        <span>${order.items_count} total qty</span>
         <span>Updated ${formatDateTime(order.updated_at)}</span>
         <span>${escapeHtml(liveOrderText)}</span>
       </div>
     </button>
+  `;
+}
+
+function renderReceptionLiveCheckCard(order) {
+  return `
+    <div class="history-row">
+      <div class="badge-row">
+        <span class="badge running">${escapeHtml(order.seat_label)}</span>
+        <span class="badge empty">Check ${order.id}</span>
+      </div>
+      <div class="meta-stack" style="margin-top: 10px;">
+        <span>Opened: ${formatDateTime(order.opened_at)}</span>
+        <span>Live items: ${order.items.filter((item) => item.item_status === "active").reduce((sum, item) => sum + item.quantity, 0)}</span>
+      </div>
+    </div>
   `;
 }
 
@@ -767,6 +883,33 @@ function bindWaiterEvents() {
     await execute("Opening table", async () => {
       await api(`/tables/${tableId}/open`, { method: "POST" });
       state.selectedTableId = tableId;
+      state.selectedSeatNumbers = [];
+      await refreshRoleData();
+    });
+  });
+
+  document.querySelectorAll("[data-seat-number]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const seatNumber = Number(button.dataset.seatNumber);
+      if (state.selectedSeatNumbers.includes(seatNumber)) {
+        state.selectedSeatNumbers = state.selectedSeatNumbers.filter((value) => value !== seatNumber);
+      } else {
+        state.selectedSeatNumbers = [...state.selectedSeatNumbers, seatNumber].sort((left, right) => left - right);
+      }
+      render();
+    });
+  });
+
+  document.querySelector("#start-check-btn")?.addEventListener("click", async (event) => {
+    const tableId = Number(event.currentTarget.dataset.tableId);
+    const seatNumbers = [...state.selectedSeatNumbers];
+    await execute("Starting seat check", async () => {
+      await api(`/tables/${tableId}/checks`, {
+        method: "POST",
+        body: { seat_numbers: seatNumbers },
+      });
+      state.notice = `${formatSeatLabel(seatNumbers)} started.`;
+      state.selectedSeatNumbers = [];
       await refreshRoleData();
     });
   });
@@ -776,36 +919,41 @@ function bindWaiterEvents() {
     await execute("Marking table empty", async () => {
       await api(`/tables/${tableId}/mark-empty`, { method: "POST" });
       state.selectedTableId = tableId;
+      state.selectedSeatNumbers = [];
       await refreshRoleData();
     });
   });
 
-  document.querySelector("#move-billing-btn")?.addEventListener("click", async (event) => {
-    const orderId = Number(event.currentTarget.dataset.orderId);
-    await execute("Sending bill to reception", async () => {
-      await api(`/orders/${orderId}/status`, {
-        method: "PATCH",
-        body: { status: "billing" },
+  document.querySelectorAll(".js-send-bill-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const orderId = Number(button.dataset.orderId);
+      await execute("Sending bill to reception", async () => {
+        await api(`/orders/${orderId}/status`, {
+          method: "PATCH",
+          body: { status: "billing" },
+        });
+        state.notice = "Bill sent to reception.";
+        await refreshRoleData();
       });
-      state.notice = "Bill sent to reception.";
-      await refreshRoleData();
     });
   });
 
-  document.querySelector("#add-item-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const orderId = Number(event.currentTarget.querySelector("button[type='submit']").dataset.orderId);
-    await execute("Sending item to kitchen", async () => {
-      await api(`/orders/${orderId}/items`, {
-        method: "POST",
-        body: {
-          item_name: String(formData.get("item_name") || ""),
-          quantity: Number(formData.get("quantity") || 1),
-          note: String(formData.get("note") || "").trim() || null,
-        },
+  document.querySelectorAll(".js-add-item-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      const orderId = Number(form.dataset.orderId);
+      await execute("Sending item to kitchen", async () => {
+        await api(`/orders/${orderId}/items`, {
+          method: "POST",
+          body: {
+            item_name: String(formData.get("item_name") || ""),
+            quantity: Number(formData.get("quantity") || 1),
+            note: String(formData.get("note") || "").trim() || null,
+          },
+        });
+        await refreshRoleData();
       });
-      await refreshRoleData();
     });
   });
 
@@ -962,6 +1110,7 @@ function logout() {
   state.kitchenTables = [];
   state.selectedTable = null;
   state.selectedTableId = null;
+  state.selectedSeatNumbers = [];
   state.pendingBills = [];
   state.selectedReceptionOrder = null;
   state.selectedReceptionOrderId = null;
@@ -1001,6 +1150,7 @@ async function refreshRoleData() {
   if (!state.tables.length) {
     state.selectedTable = null;
     state.selectedTableId = null;
+    state.selectedSeatNumbers = [];
     state.pendingBills = [];
     state.selectedReceptionOrder = null;
     state.selectedReceptionOrderId = null;
@@ -1019,12 +1169,15 @@ async function refreshRoleData() {
 async function loadSelectedTable() {
   if (!state.selectedTableId) {
     state.selectedTable = null;
+    state.selectedSeatNumbers = [];
     state.selectedReceptionOrder = null;
     state.selectedReceptionOrderId = null;
     state.billing = null;
     return;
   }
   state.selectedTable = await api(`/tables/${state.selectedTableId}`);
+  const availableSeatNumbers = new Set(getAvailableSeats(state.selectedTable).map((seat) => seat.seat_number));
+  state.selectedSeatNumbers = state.selectedSeatNumbers.filter((seatNumber) => availableSeatNumbers.has(seatNumber));
   if (state.user?.role === "receptionist") {
     syncSelectedReceptionOrder();
     if (state.selectedReceptionOrderId) {
@@ -1204,12 +1357,13 @@ async function api(path, options = {}) {
 function humanizeEvent(type, payload) {
   const names = {
     table_updated: "Table opened for service.",
+    check_created: "New seat check started.",
     table_emptied: "Waiter marked the table empty.",
     item_added: "New item sent live to kitchen.",
     item_updated: "Order item updated.",
     item_cancelled: "An item was cancelled but kept in history.",
     kitchen_status_changed: "Kitchen status changed.",
-    order_status_changed: payload?.order_status === "billing" ? "Waiter sent the bill to reception." : "Order returned to running service.",
+    order_status_changed: payload?.order_status === "billing" ? "Waiter sent a seat check to reception." : "Order returned to running service.",
     billing_saved: "Billing draft saved.",
     payment_completed: "Payment completed.",
   };
@@ -1230,12 +1384,12 @@ function displayStatus(status) {
 
 function renderReceptionTableNotice(table) {
   if (table.pending_bills_count) {
-    return "This table already has a bill waiting in reception. Keep working from the billing queue below. The waiter still decides when the table becomes empty.";
+    return "This table has pending seat checks waiting at reception. Keep working from the billing queue below. The waiter still decides when the whole table becomes empty.";
   }
   if (table.status === "empty") {
     return "No current service on this table right now.";
   }
-  return "Waiter is still serving this table. The bill will appear here after the waiter sends it to reception.";
+  return "Waiter is still serving this table. Each seat check will appear here separately after the waiter sends it.";
 }
 
 function persistSession() {
@@ -1284,6 +1438,17 @@ function capitalize(value) {
   return String(value || "")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatSeatLabel(seatNumbers) {
+  const normalized = [...new Set((seatNumbers || []).map((value) => Number(value)))].sort((left, right) => left - right);
+  if (!normalized.length) {
+    return "No seats";
+  }
+  if (normalized.length === 1) {
+    return `Seat ${normalized[0]}`;
+  }
+  return `Seats ${normalized.join(" + ")}`;
 }
 
 function moneyLabel(value) {

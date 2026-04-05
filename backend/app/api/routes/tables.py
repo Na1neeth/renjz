@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_roles
 from app.models.enums import UserRole
 from app.models.user import User
-from app.schemas.table import TableDetail, TableSummary
+from app.schemas.table import TableCheckCreate, TableDetail, TableSummary
 from app.services.order_service import (
+    create_check_for_table,
     list_tables,
     load_table,
     mark_table_empty,
@@ -57,6 +58,29 @@ async def open_table_for_service(
         },
     )
     return payload
+
+
+@router.post("/{table_id}/checks", response_model=TableDetail)
+async def create_table_check(
+    table_id: int,
+    payload: TableCheckCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.WAITER)),
+):
+    table = load_table(db, table_id)
+    order = create_check_for_table(db, table, payload.seat_numbers, current_user)
+    db.commit()
+    table = load_table(db, table_id)
+    payload_data = serialize_table(table)
+    await manager.broadcast(
+        "check_created",
+        {
+            "table_id": table.id,
+            "order_id": order.id,
+            "table_status": table.status.value,
+        },
+    )
+    return payload_data
 
 
 @router.post("/{table_id}/mark-empty", response_model=TableDetail)

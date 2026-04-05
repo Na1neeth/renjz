@@ -5,7 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.core.security import create_access_token, verify_password
+from app.core.security import (
+    create_access_token,
+    get_access_token_expiry,
+    session_is_active,
+    verify_password,
+)
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserRead
 from app.websockets.manager import manager
@@ -23,12 +28,20 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid username or password",
         )
 
+    if session_is_active(user.active_session_key, user.active_session_expires_at):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This account is already signed in on another device. Log out there first.",
+        )
+
+    expires_at = get_access_token_expiry()
     user.active_session_key = secrets.token_hex(16)
+    user.active_session_expires_at = expires_at
     db.commit()
     db.refresh(user)
     await manager.disconnect_user_sessions(user.id)
 
-    token = create_access_token(user.username, user.active_session_key)
+    token = create_access_token(user.username, user.active_session_key, expires_at)
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -47,6 +60,7 @@ async def logout(
     db: Session = Depends(get_db),
 ):
     current_user.active_session_key = None
+    current_user.active_session_expires_at = None
     db.commit()
     await manager.disconnect_user_sessions(current_user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

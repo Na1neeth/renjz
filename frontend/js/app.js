@@ -20,16 +20,6 @@ const state = {
   flashes: {},
 };
 
-const demoUsers = [
-  { role: "receptionist", username: "reception1", password: "3001", label: "Reception 1" },
-  { role: "kitchen", username: "kitchen1", password: "2001", label: "Kitchen 1" },
-  { role: "waiter", username: "waiter1", password: "1001", label: "Waiter 1" },
-  { role: "waiter", username: "waiter2", password: "1002", label: "Waiter 2" },
-  { role: "waiter", username: "waiter3", password: "1003", label: "Waiter 3" },
-  { role: "waiter", username: "waiter4", password: "1004", label: "Waiter 4" },
-  { role: "waiter", username: "waiter5", password: "1005", label: "Waiter 5" },
-];
-
 const FLOOR_LAYOUT = [
   { key: "A", tableNames: ["A1", "A2", "A3", "A4"] },
   { key: "B", tableNames: ["B1", "B2", "B3", "B4", "B5"] },
@@ -99,57 +89,26 @@ function render() {
 function renderLogin() {
   return `
     <div class="login-shell">
-      <div class="login-card">
-        <section class="hero-panel">
-          <div class="eyebrow">Staff Access</div>
-          <h1 class="hero-title">Renjz Kitchen service board</h1>
-          <p class="hero-copy">
-            Free-text ordering for the floor, live handoff to the kitchen, and manual pricing at checkout for reception.
-          </p>
-          <div class="demo-grid">
-            ${demoUsers
-              .map(
-                (user) => `
-                  <div class="demo-card">
-                    <strong>${escapeHtml(user.label || capitalize(user.role))}</strong>
-                    <p>${user.username} / ${user.password}</p>
-                    <div class="footer-note">${capitalize(user.role)}</div>
-                  </div>
-                `,
-              )
-              .join("")}
+      <section class="login-card login-card-simple">
+        <div class="login-brand">
+          <div class="eyebrow">Staff Login</div>
+          <h1 class="hero-title">Renjz Kitchen</h1>
+        </div>
+        ${state.error ? `<div class="error-strip">${escapeHtml(state.error)}</div>` : ""}
+        <form id="login-form" class="login-form">
+          <div class="field-grid">
+            <label class="label" for="username">Username</label>
+            <input id="username" class="input" name="username" autocomplete="username" required autofocus />
           </div>
-        </section>
-        <section class="form-panel">
-          <h2 class="section-title">Sign in</h2>
-          <p class="muted">Use one of the configured staff accounts below or enter the username and 4-digit PIN manually.</p>
-          ${state.error ? `<div class="error-strip">${escapeHtml(state.error)}</div>` : ""}
-          <form id="login-form" class="login-form">
-            <div class="field-grid">
-              <label class="label" for="username">Username</label>
-              <input id="username" class="input" name="username" autocomplete="username" required />
-            </div>
-            <div class="field-grid">
-              <label class="label" for="password">Password</label>
-              <input id="password" class="input" name="password" type="password" autocomplete="current-password" required />
-            </div>
-            <div class="action-row">
-              <button class="primary-btn" type="submit">${state.busy || "Sign in"}</button>
-            </div>
-          </form>
-          <div class="demo-grid">
-            ${demoUsers
-              .map(
-                (user) => `
-                  <button class="ghost-btn demo-fill-btn" data-username="${user.username}" data-password="${user.password}">
-                    Use ${escapeHtml(user.label || capitalize(user.role))}
-                  </button>
-                `,
-              )
-              .join("")}
+          <div class="field-grid">
+            <label class="label" for="password">Password</label>
+            <input id="password" class="input" name="password" type="password" autocomplete="current-password" required />
           </div>
-        </section>
-      </div>
+          <div class="action-row">
+            <button class="primary-btn" type="submit">${state.busy || "Sign in"}</button>
+          </div>
+        </form>
+      </section>
     </div>
   `;
 }
@@ -873,13 +832,6 @@ function bindLoginEvents() {
       return;
     }
     await login(username, password);
-  });
-
-  document.querySelectorAll(".demo-fill-btn").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.querySelector("#username").value = button.dataset.username;
-      document.querySelector("#password").value = button.dataset.password;
-    });
   });
 }
 

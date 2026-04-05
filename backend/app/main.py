@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, session_is_active
 from app.db.init_db import init_db
 from app.db.session import SessionLocal
 from app.models.user import User
@@ -56,7 +56,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
     finally:
         db.close()
 
-    if not user or user.active_session_key != token_payload["sid"]:
+    if not user or user.active_session_key != token_payload["sid"] or not session_is_active(
+        user.active_session_key,
+        user.active_session_expires_at,
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

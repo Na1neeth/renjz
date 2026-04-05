@@ -68,11 +68,8 @@ button {
 }
 
 .login-card {
-  width: min(1080px, 100%);
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 24px;
-  padding: 24px;
+  width: min(440px, 100%);
+  padding: 32px;
   background:
     linear-gradient(rgba(255, 249, 245, 0.88), rgba(247, 235, 234, 0.92)),
     linear-gradient(135deg, rgba(180, 83, 63, 0.08), rgba(93, 49, 101, 0.08));
@@ -82,8 +79,16 @@ button {
   backdrop-filter: blur(16px);
 }
 
-.hero-panel,
-.form-panel,
+.login-card-simple {
+  display: grid;
+  gap: 20px;
+}
+
+.login-brand {
+  display: grid;
+  gap: 12px;
+}
+
 .panel,
 .item-card,
 .table-button,
@@ -98,8 +103,6 @@ button {
   box-shadow: var(--shadow);
 }
 
-.hero-panel,
-.form-panel,
 .panel,
 .table-detail-card,
 .order-box,
@@ -109,14 +112,12 @@ button {
   padding: 24px;
 }
 
-.hero-panel,
 .topbar,
 .table-column,
 .billing-box {
   position: relative;
 }
 
-.hero-panel::before,
 .table-column::before {
   content: "";
   position: absolute;
@@ -143,13 +144,10 @@ button {
   line-height: 1;
 }
 
-.hero-copy {
-  color: var(--muted);
-  font-size: 1.05rem;
-  max-width: 38rem;
+.login-brand .hero-title {
+  font-size: clamp(2.6rem, 7vw, 3.4rem);
 }
 
-.demo-grid,
 .stats-row,
 .topbar-metrics,
 .action-row,
@@ -160,26 +158,12 @@ button {
   gap: 12px;
 }
 
-.demo-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 18px;
-}
-
-.demo-card {
-  padding: 16px;
-  border-radius: var(--radius-md);
-  background: rgba(253, 245, 241, 0.9);
-  border: 1px solid rgba(88, 46, 65, 0.1);
-}
-
-.demo-card strong,
 .stat-pill strong {
   display: block;
   margin-bottom: 6px;
   font-size: 0.96rem;
 }
 
-.demo-card p,
 .stat-pill span,
 .meta-line,
 .muted {
@@ -190,6 +174,14 @@ button {
 .login-form {
   display: grid;
   gap: 16px;
+}
+
+.login-card-simple .action-row {
+  grid-template-columns: 1fr;
+}
+
+.login-card-simple .primary-btn {
+  width: 100%;
 }
 
 .field-grid {
@@ -787,7 +779,6 @@ button {
 }
 
 @media (max-width: 1100px) {
-  .login-card,
   .topbar {
     grid-template-columns: 1fr;
     display: grid;
@@ -808,14 +799,17 @@ button {
     padding: 14px;
   }
 
+  .login-card {
+    padding: 24px 18px;
+    border-radius: 24px;
+  }
+
   .panel,
   .table-detail-card,
   .order-box,
   .history-box,
   .billing-box,
-  .empty-box,
-  .hero-panel,
-  .form-panel {
+  .empty-box {
     padding: 14px;
   }
 
@@ -829,10 +823,6 @@ button {
   .billing-table {
     display: block;
     overflow-x: auto;
-  }
-
-  .demo-grid {
-    grid-template-columns: 1fr;
   }
 
   .kitchen-grid {

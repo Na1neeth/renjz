@@ -135,6 +135,7 @@ def sync_additive_schema() -> None:
         connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
         connection.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_key VARCHAR(64)"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_expires_at TIMESTAMP WITH TIME ZONE"))
 
 
 def backfill_seat_runtime_data(db) -> None:
@@ -201,6 +202,7 @@ def seed_data() -> None:
             if legacy_user:
                 legacy_user.is_active = False
                 legacy_user.active_session_key = None
+                legacy_user.active_session_expires_at = None
 
         db.flush()
 

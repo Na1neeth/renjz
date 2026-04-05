@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, session_is_active
 from app.db.session import SessionLocal
 from app.models.enums import UserRole
 from app.models.user import User
@@ -36,7 +36,10 @@ def get_current_user(
     user = db.scalar(select(User).where(User.username == token_payload["sub"], User.is_active.is_(True)))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    if not user.active_session_key or user.active_session_key != token_payload["sid"]:
+    if user.active_session_key != token_payload["sid"] or not session_is_active(
+        user.active_session_key,
+        user.active_session_expires_at,
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
     return user
 

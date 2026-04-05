@@ -40,6 +40,51 @@ TABLE_LABELS = [
     "C4",
 ]
 
+STAFF_USERS = [
+    {
+        "username": "reception1",
+        "display_name": "Reception 1",
+        "password": "3001",
+        "role": UserRole.RECEPTIONIST,
+    },
+    {
+        "username": "kitchen1",
+        "display_name": "Kitchen 1",
+        "password": "2001",
+        "role": UserRole.KITCHEN,
+    },
+    {
+        "username": "waiter1",
+        "display_name": "Waiter 1",
+        "password": "1001",
+        "role": UserRole.WAITER,
+    },
+    {
+        "username": "waiter2",
+        "display_name": "Waiter 2",
+        "password": "1002",
+        "role": UserRole.WAITER,
+    },
+    {
+        "username": "waiter3",
+        "display_name": "Waiter 3",
+        "password": "1003",
+        "role": UserRole.WAITER,
+    },
+    {
+        "username": "waiter4",
+        "display_name": "Waiter 4",
+        "password": "1004",
+        "role": UserRole.WAITER,
+    },
+    {
+        "username": "waiter5",
+        "display_name": "Waiter 5",
+        "password": "1005",
+        "role": UserRole.WAITER,
+    },
+]
+
 
 def seat_count_for_table_name(table_name: str) -> int:
     normalized = str(table_name or "").strip().upper()
@@ -89,6 +134,7 @@ def sync_additive_schema() -> None:
         connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS seat_count INTEGER"))
         connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
         connection.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_key VARCHAR(64)"))
 
 
 def backfill_seat_runtime_data(db) -> None:
@@ -126,37 +172,40 @@ def backfill_seat_runtime_data(db) -> None:
 def seed_data() -> None:
     db = SessionLocal()
     try:
-        waiter = db.scalar(select(User).where(User.username == "waiter"))
-        if not waiter:
-            waiter = User(
-                username="waiter",
-                display_name="Demo Waiter",
-                password_hash=get_password_hash("demo123"),
-                role=UserRole.WAITER,
-            )
-            db.add(waiter)
+        user_lookup = {
+            user.username: user
+            for user in db.scalars(select(User).order_by(User.id))
+        }
 
-        kitchen = db.scalar(select(User).where(User.username == "kitchen"))
-        if not kitchen:
-            kitchen = User(
-                username="kitchen",
-                display_name="Demo Kitchen",
-                password_hash=get_password_hash("demo123"),
-                role=UserRole.KITCHEN,
-            )
-            db.add(kitchen)
+        for staff in STAFF_USERS:
+            user = user_lookup.get(staff["username"])
+            if not user:
+                user = User(
+                    username=staff["username"],
+                    display_name=staff["display_name"],
+                    password_hash=get_password_hash(staff["password"]),
+                    role=staff["role"],
+                    is_active=True,
+                )
+                db.add(user)
+                user_lookup[staff["username"]] = user
+                continue
 
-        receptionist = db.scalar(select(User).where(User.username == "reception"))
-        if not receptionist:
-            receptionist = User(
-                username="reception",
-                display_name="Demo Reception",
-                password_hash=get_password_hash("demo123"),
-                role=UserRole.RECEPTIONIST,
-            )
-            db.add(receptionist)
+            user.display_name = staff["display_name"]
+            user.password_hash = get_password_hash(staff["password"])
+            user.role = staff["role"]
+            user.is_active = True
+
+        for legacy_username in ("waiter", "kitchen", "reception"):
+            legacy_user = user_lookup.get(legacy_username)
+            if legacy_user:
+                legacy_user.is_active = False
+                legacy_user.active_session_key = None
 
         db.flush()
+
+        waiter = user_lookup["waiter1"]
+        receptionist = user_lookup["reception1"]
 
         existing_tables = {
             table.name: table for table in db.scalars(select(RestaurantTable).order_by(RestaurantTable.id))

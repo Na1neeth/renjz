@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,13 +8,14 @@ from app.api.deps import get_current_user, get_db
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserRead
+from app.websockets.manager import manager
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+async def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.username == payload.username, User.is_active.is_(True)))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
@@ -20,7 +23,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid username or password",
         )
 
-    token = create_access_token(user.username)
+    user.active_session_key = secrets.token_hex(16)
+    db.commit()
+    db.refresh(user)
+    await manager.disconnect_user_sessions(user.id)
+
+    token = create_access_token(user.username, user.active_session_key)
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -32,3 +40,13 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     return UserRead.model_validate(current_user, from_attributes=True)
 
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.active_session_key = None
+    db.commit()
+    await manager.disconnect_user_sessions(current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -21,9 +21,13 @@ const state = {
 };
 
 const demoUsers = [
-  { role: "waiter", username: "waiter", password: "demo123" },
-  { role: "kitchen", username: "kitchen", password: "demo123" },
-  { role: "receptionist", username: "reception", password: "demo123" },
+  { role: "receptionist", username: "reception1", password: "3001", label: "Reception 1" },
+  { role: "kitchen", username: "kitchen1", password: "2001", label: "Kitchen 1" },
+  { role: "waiter", username: "waiter1", password: "1001", label: "Waiter 1" },
+  { role: "waiter", username: "waiter2", password: "1002", label: "Waiter 2" },
+  { role: "waiter", username: "waiter3", password: "1003", label: "Waiter 3" },
+  { role: "waiter", username: "waiter4", password: "1004", label: "Waiter 4" },
+  { role: "waiter", username: "waiter5", password: "1005", label: "Waiter 5" },
 ];
 
 const FLOOR_LAYOUT = [
@@ -97,7 +101,7 @@ function renderLogin() {
     <div class="login-shell">
       <div class="login-card">
         <section class="hero-panel">
-          <div class="eyebrow">Restaurant MVP</div>
+          <div class="eyebrow">Staff Access</div>
           <h1 class="hero-title">Renjz Kitchen service board</h1>
           <p class="hero-copy">
             Free-text ordering for the floor, live handoff to the kitchen, and manual pricing at checkout for reception.
@@ -107,9 +111,9 @@ function renderLogin() {
               .map(
                 (user) => `
                   <div class="demo-card">
-                    <strong>${capitalize(user.role)}</strong>
+                    <strong>${escapeHtml(user.label || capitalize(user.role))}</strong>
                     <p>${user.username} / ${user.password}</p>
-                    <div class="footer-note">Tap the preset to fill the form instantly.</div>
+                    <div class="footer-note">${capitalize(user.role)}</div>
                   </div>
                 `,
               )
@@ -118,7 +122,7 @@ function renderLogin() {
         </section>
         <section class="form-panel">
           <h2 class="section-title">Sign in</h2>
-          <p class="muted">Choose one of the seeded users or enter credentials manually.</p>
+          <p class="muted">Use one of the configured staff accounts below or enter the username and 4-digit PIN manually.</p>
           ${state.error ? `<div class="error-strip">${escapeHtml(state.error)}</div>` : ""}
           <form id="login-form" class="login-form">
             <div class="field-grid">
@@ -138,7 +142,7 @@ function renderLogin() {
               .map(
                 (user) => `
                   <button class="ghost-btn demo-fill-btn" data-username="${user.username}" data-password="${user.password}">
-                    Use ${capitalize(user.role)}
+                    Use ${escapeHtml(user.label || capitalize(user.role))}
                   </button>
                 `,
               )
@@ -838,7 +842,9 @@ function renderBadge(status) {
 }
 
 function bindCommonEvents() {
-  document.querySelector("#logout-btn")?.addEventListener("click", logout);
+  document.querySelector("#logout-btn")?.addEventListener("click", () => {
+    void logout();
+  });
   document.querySelector("#refresh-view")?.addEventListener("click", () => {
     void refreshRoleData();
   });
@@ -1101,7 +1107,14 @@ async function login(username, password) {
   }
 }
 
-function logout() {
+async function logout() {
+  if (state.token) {
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore logout failures and clear local state anyway.
+    }
+  }
   if (state.socket) {
     state.socket.close();
   }
@@ -1313,8 +1326,12 @@ function connectSocket() {
     await refreshRoleData();
   };
 
-  state.socket.onclose = () => {
+  state.socket.onclose = (event) => {
     if (!state.user) {
+      return;
+    }
+    if (event.code === 1008) {
+      invalidateSession("This account was opened somewhere else. Please sign in again.");
       return;
     }
     state.notice = "Realtime link dropped. Reconnecting...";
@@ -1344,6 +1361,9 @@ async function api(path, options = {}) {
       message = errorData.detail || message;
     } catch {
       message = `${response.status} ${response.statusText}`;
+    }
+    if (response.status === 401 && options.authenticated !== false) {
+      invalidateSession(message);
     }
     throw new Error(message);
   }
@@ -1402,6 +1422,26 @@ function clearSession() {
   localStorage.removeItem(STORAGE_USER);
   state.token = "";
   state.user = null;
+}
+
+function invalidateSession(message) {
+  if (state.socket) {
+    state.socket.close();
+  }
+  clearSession();
+  state.tables = [];
+  state.kitchenTables = [];
+  state.selectedTable = null;
+  state.selectedTableId = null;
+  state.selectedSeatNumbers = [];
+  state.pendingBills = [];
+  state.selectedReceptionOrder = null;
+  state.selectedReceptionOrderId = null;
+  state.billing = null;
+  state.notice = "";
+  state.error = message;
+  state.busy = "";
+  render();
 }
 
 function scrollToTableDetails() {

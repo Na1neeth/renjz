@@ -29,13 +29,15 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing auth token")
 
-    username = decode_access_token(credentials.credentials)
-    if not username:
+    token_payload = decode_access_token(credentials.credentials)
+    if not token_payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth token")
 
-    user = db.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
+    user = db.scalar(select(User).where(User.username == token_payload["sub"], User.is_active.is_(True)))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if not user.active_session_key or user.active_session_key != token_payload["sid"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
     return user
 
 
@@ -49,4 +51,3 @@ def require_roles(*roles: UserRole) -> Callable:
         return user
 
     return dependency
-

@@ -45,18 +45,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    username = decode_access_token(token)
-    if not username:
+    token_payload = decode_access_token(token)
+    if not token_payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     db = SessionLocal()
     try:
-        user = db.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
+        user = db.scalar(select(User).where(User.username == token_payload["sub"], User.is_active.is_(True)))
     finally:
         db.close()
 
-    if not user:
+    if not user or user.active_session_key != token_payload["sid"]:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

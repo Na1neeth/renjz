@@ -42,11 +42,15 @@ If everything starts correctly, open:
 http://127.0.0.1:8000
 ```
 
-## Demo users
+## Staff users
 
-- waiter: `waiter / demo123`
-- kitchen: `kitchen / demo123`
-- receptionist: `reception / demo123`
+- receptionist: `reception1 / 3001`
+- kitchen: `kitchen1 / 2001`
+- waiter: `waiter1 / 1001`
+- waiter: `waiter2 / 1002`
+- waiter: `waiter3 / 1003`
+- waiter: `waiter4 / 1004`
+- waiter: `waiter5 / 1005`
 
 ## Share it on the same Wi-Fi
 

@@ -60,11 +60,15 @@ For Mac setup and local network sharing, see [README_MAC.md](./README_MAC.md).
 
 `order_items` keep the current order state. `order_activity_logs` keep the immutable action history for adds, edits, cancellations, kitchen changes, billing saves, and payment completion.
 
-## Demo users
+## Staff users
 
-- waiter: `waiter / demo123`
-- kitchen: `kitchen / demo123`
-- receptionist: `reception / demo123`
+- receptionist: `reception1 / 3001`
+- kitchen: `kitchen1 / 2001`
+- waiter: `waiter1 / 1001`
+- waiter: `waiter2 / 1002`
+- waiter: `waiter3 / 1003`
+- waiter: `waiter4 / 1004`
+- waiter: `waiter5 / 1005`
 
 ## Upload to GitHub
 

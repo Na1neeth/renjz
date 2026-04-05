@@ -20,6 +20,19 @@ class ConnectionManager:
             if connection["websocket"] is not websocket
         ]
 
+    async def disconnect_user_sessions(self, user_id: int) -> None:
+        matching = [
+            connection["websocket"]
+            for connection in self._connections
+            if connection["user"]["id"] == user_id
+        ]
+        for websocket in matching:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+            self.disconnect(websocket)
+
     async def broadcast(self, event_type: str, payload: dict, roles: Iterable[str] | None = None) -> None:
         allowed_roles = set(roles or [])
         message = jsonable_encoder({"type": event_type, "payload": payload})
@@ -39,4 +52,3 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
-

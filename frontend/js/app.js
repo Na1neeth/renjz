@@ -1197,7 +1197,7 @@ function bindReceptionEvents() {
     const paymentMethod = document.querySelector("#payment_method").value;
     const paymentNotes = document.querySelector("#payment_notes").value.trim() || null;
     await execute("Completing payment", async () => {
-      await api(`/reception/orders/${orderId}/checkout`, {
+      const result = await api(`/reception/orders/${orderId}/checkout`, {
         method: "POST",
         body: {
           items: payload.items,
@@ -1207,7 +1207,7 @@ function bindReceptionEvents() {
         },
       });
       state.selectedReceptionOrderId = null;
-      state.notice = "Payment recorded. The bill is closed.";
+      state.notice = buildCheckoutNotice(result);
       await refreshRoleData();
     });
   });
@@ -1450,6 +1450,16 @@ function updateBillingTotals() {
   document.querySelector("#subtotal-value").textContent = moneyLabel(subtotal);
   document.querySelector("#discount-value").textContent = moneyLabel(discount);
   document.querySelector("#final-total-value").textContent = moneyLabel(finalTotal);
+}
+
+function buildCheckoutNotice(result) {
+  if (result?.receipt_printed === true) {
+    return "Payment recorded. Receipt printed.";
+  }
+  if (result?.receipt_printed === false) {
+    return `Payment recorded, but receipt printing failed: ${result.receipt_message}`;
+  }
+  return "Payment recorded. The bill is closed.";
 }
 
 async function execute(label, work) {

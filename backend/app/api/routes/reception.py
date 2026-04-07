@@ -16,6 +16,7 @@ from app.services.billing_service import (
     list_pending_billing_orders,
     save_billing,
 )
+from app.services.printer_service import print_receipt_for_payment
 from app.services.order_service import load_order
 from app.websockets.manager import manager
 
@@ -109,4 +110,11 @@ async def complete_checkout(
             **payment_summary,
         },
     )
-    return payment_summary
+    order = load_order(db, order_id)
+    payment = next((entry for entry in order.payments if entry.id == payment_summary["payment_id"]), None)
+    receipt_status = (
+        print_receipt_for_payment(order, payment, actor_name=current_user.display_name)
+        if payment is not None
+        else None
+    )
+    return {**payment_summary, **(receipt_status or {})}

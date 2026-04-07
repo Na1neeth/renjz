@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=720, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
     business_timezone: str = Field(default="Asia/Kolkata", alias="BUSINESS_TIMEZONE")
+    receipt_printer_enabled: bool = Field(default=False, alias="RECEIPT_PRINTER_ENABLED")
+    receipt_printer_host: str = Field(default="", alias="RECEIPT_PRINTER_HOST")
+    receipt_printer_port: int = Field(default=9100, alias="RECEIPT_PRINTER_PORT")
+    receipt_printer_timeout_seconds: float = Field(default=3.0, alias="RECEIPT_PRINTER_TIMEOUT_SECONDS")
+    receipt_printer_chars_per_line: int = Field(default=42, alias="RECEIPT_PRINTER_CHARS_PER_LINE")
+    receipt_header: str = Field(default="Renjz Kitchen", alias="RECEIPT_HEADER")
+    receipt_footer: str = Field(default="Thank you. Visit again.", alias="RECEIPT_FOOTER")
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/restaurant_app",
         alias="DATABASE_URL",

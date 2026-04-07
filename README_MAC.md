@@ -44,6 +44,31 @@ If everything starts correctly, open:
 http://127.0.0.1:8000
 ```
 
+## Receipt printer on Mac
+
+This app can print a receipt automatically after checkout to an `ESC/POS` network printer.
+
+Copy the env file if you have not already:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Then set these values in `backend/.env`:
+
+```env
+RECEIPT_PRINTER_ENABLED=true
+RECEIPT_PRINTER_HOST=192.168.0.57
+RECEIPT_PRINTER_PORT=9100
+```
+
+Notes:
+
+- The printer self-test should show `Protocol: ESC/POS`.
+- The printer host should match the printer IP from the self-test page.
+- `9100` is the common raw network printing port for thermal printers.
+- Payment is still saved even if printing fails, and the reception screen will show the print result.
+
 ## Staff users
 
 - receptionist: `reception1 / 3001`

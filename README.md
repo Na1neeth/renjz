@@ -1,10 +1,11 @@
 # Renjz Kitchen
 
-Restaurant order management MVP for three roles:
+Restaurant order management MVP for four roles:
 
 - `waiter`: table-based free-text ordering
 - `kitchen`: live active order dashboard
 - `receptionist`: manual billing and payment closure
+- `sales`: standalone sales dashboard with trends and item reporting
 
 The app is built with:
 
@@ -64,6 +65,7 @@ For Mac setup and local network sharing, see [README_MAC.md](./README_MAC.md).
 
 - receptionist: `reception1 / 3001`
 - kitchen: `kitchen1 / 2001`
+- sales: `sales1 / 4001`
 - waiter: `waiter1 / 1001`
 - waiter: `waiter2 / 1002`
 - waiter: `waiter3 / 1003`
@@ -180,6 +182,14 @@ The frontend is static and served directly by FastAPI, so there is no separate N
 - apply discount
 - record payment and close the bill
 
+### Sales
+
+- sign in separately from reception
+- view today, 7 day, and 30 day revenue
+- review payment method mix
+- review daily sales calendar and trend graph
+- inspect top billed items and billed quantity
+
 ## Important implementation notes
 
 - There is no fixed menu anywhere in the data model.
@@ -206,6 +216,7 @@ The frontend is static and served directly by FastAPI, so there is no separate N
 - `GET /api/reception/orders/pending`
 - `PUT /api/reception/orders/{order_id}/billing`
 - `POST /api/reception/orders/{order_id}/checkout`
+- `GET /api/sales/reports/sales?days=30`
 - `GET /ws?token=...`
 
 ## Verified locally

@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
-from app.models.enums import KitchenItemStatus, OrderItemStatus
+from app.models.enums import KitchenItemStatus, OrderItemStatus, db_enum
 
 
 class OrderItem(TimestampMixin, Base):
@@ -16,14 +16,13 @@ class OrderItem(TimestampMixin, Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     item_status: Mapped[OrderItemStatus] = mapped_column(
-        Enum(OrderItemStatus), default=OrderItemStatus.ACTIVE, nullable=False, index=True
+        db_enum(OrderItemStatus, "orderitemstatus"), default=OrderItemStatus.ACTIVE, nullable=False, index=True
     )
     kitchen_status: Mapped[KitchenItemStatus] = mapped_column(
-        Enum(KitchenItemStatus), default=KitchenItemStatus.NEW, nullable=False, index=True
+        db_enum(KitchenItemStatus, "kitchenitemstatus"), default=KitchenItemStatus.NEW, nullable=False, index=True
     )
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     order = relationship("Order", back_populates="items")
-

@@ -24,7 +24,7 @@ def get_active_kitchen_orders(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.KITCHEN, UserRole.RECEPTIONIST, UserRole.WAITER)),
 ):
-    return [serialize_table(table) for table in list_active_kitchen_tables(db)]
+    return [serialize_table(table, kitchen_view=True) for table in list_active_kitchen_tables(db)]
 
 
 @router.patch("/orders/{order_id}/items/{item_id}/status", response_model=dict)
@@ -49,5 +49,4 @@ async def change_kitchen_status(
             "kitchen_status": payload.kitchen_status.value,
         },
     )
-    return serialize_table(order.table)
-
+    return serialize_table(order.table, kitchen_view=True)

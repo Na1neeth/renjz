@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import ActivityAction, UserRole
+from app.models.enums import ActivityAction, UserRole, db_enum
 
 
 class OrderActivityLog(Base):
@@ -16,8 +16,10 @@ class OrderActivityLog(Base):
     item_id: Mapped[int | None] = mapped_column(ForeignKey("order_items.id"), nullable=True, index=True)
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     actor_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    actor_role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, index=True)
-    action_type: Mapped[ActivityAction] = mapped_column(Enum(ActivityAction), nullable=False, index=True)
+    actor_role: Mapped[UserRole] = mapped_column(db_enum(UserRole, "userrole"), nullable=False, index=True)
+    action_type: Mapped[ActivityAction] = mapped_column(
+        db_enum(ActivityAction, "activityaction"), nullable=False, index=True
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     quantity_before: Mapped[int | None] = mapped_column(Integer, nullable=True)

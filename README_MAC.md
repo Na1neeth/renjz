@@ -46,6 +46,7 @@ http://127.0.0.1:8000
 
 - receptionist: `reception1 / 3001`
 - kitchen: `kitchen1 / 2001`
+- sales: `sales1 / 4001`
 - waiter: `waiter1 / 1001`
 - waiter: `waiter2 / 1002`
 - waiter: `waiter3 / 1003`

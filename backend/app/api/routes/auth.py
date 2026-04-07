@@ -5,12 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.core.security import (
-    create_access_token,
-    get_access_token_expiry,
-    session_is_active,
-    verify_password,
-)
+from app.core.security import create_access_token, get_access_token_expiry, verify_password
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserRead
 from app.websockets.manager import manager
@@ -26,12 +21,6 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
-        )
-
-    if session_is_active(user.active_session_key, user.active_session_expires_at):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This account is already signed in on another device. Log out there first.",
         )
 
     expires_at = get_access_token_expiry()

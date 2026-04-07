@@ -423,7 +423,7 @@ function renderReceptionView() {
                   <div class="totals-line strong"><span>Final total</span><strong id="final-total-value">${moneyLabel(billing.final_total)}</strong></div>
                 </div>
                 <div class="action-row" style="margin-top: 16px;">
-                  <button class="primary-btn" type="button" id="save-billing-btn" data-order-id="${billingOrder.id}">Save bill draft</button>
+                  <button class="primary-btn" type="button" id="print-bill-btn" data-order-id="${billingOrder.id}">Print bill</button>
                   <button class="secondary-btn" type="button" id="checkout-btn" data-order-id="${billingOrder.id}">Mark payment complete</button>
                 </div>
               </form>
@@ -1179,14 +1179,16 @@ function bindReceptionEvents() {
     element.addEventListener("change", updateBillingTotals);
   });
 
-  document.querySelector("#save-billing-btn")?.addEventListener("click", async (event) => {
+  document.querySelector("#print-bill-btn")?.addEventListener("click", async (event) => {
     const orderId = Number(event.currentTarget.dataset.orderId);
     const payload = collectBillingForm();
-    await execute("Saving billing draft", async () => {
-      state.billing = await api(`/reception/orders/${orderId}/billing`, {
-        method: "PUT",
+    await execute("Printing bill", async () => {
+      const result = await api(`/reception/orders/${orderId}/print-bill`, {
+        method: "POST",
         body: payload,
       });
+      state.billing = result.snapshot || state.billing;
+      state.notice = buildPrintBillNotice(result);
       await refreshRoleData();
     });
   });
@@ -1460,6 +1462,16 @@ function buildCheckoutNotice(result) {
     return `Payment recorded, but receipt printing failed: ${result.receipt_message}`;
   }
   return "Payment recorded. The bill is closed.";
+}
+
+function buildPrintBillNotice(result) {
+  if (result?.receipt_printed === true) {
+    return "Bill printed.";
+  }
+  if (result?.receipt_printed === false) {
+    return `Bill saved, but printing failed: ${result.receipt_message}`;
+  }
+  return "Bill saved.";
 }
 
 async function execute(label, work) {

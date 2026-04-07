@@ -60,6 +60,9 @@ Then set these values in `backend/.env`:
 RECEIPT_PRINTER_ENABLED=true
 RECEIPT_PRINTER_HOST=192.168.0.57
 RECEIPT_PRINTER_PORT=9100
+RECEIPT_SHOP_NAME=RENJZ KITCHEN
+RECEIPT_ADDRESS_LINES=Bhuvanappa layout, 30, 31, 32|2nd cross road, Tavarekere Main Rd,|DRC Post, Bengaluru, Karnataka 560029
+RECEIPT_PHONE=9400204473
 ```
 
 Notes:
@@ -67,6 +70,7 @@ Notes:
 - The printer self-test should show `Protocol: ESC/POS`.
 - The printer host should match the printer IP from the self-test page.
 - `9100` is the common raw network printing port for thermal printers.
+- `Print bill` now prints a sample-style bill before payment completion.
 - Payment is still saved even if printing fails, and the reception screen will show the print result.
 
 ## Staff users

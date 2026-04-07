@@ -16,7 +16,7 @@ from app.services.billing_service import (
     list_pending_billing_orders,
     save_billing,
 )
-from app.services.printer_service import print_receipt_for_payment
+from app.services.printer_service import print_bill_snapshot, print_receipt_for_payment
 from app.services.order_service import load_order
 from app.websockets.manager import manager
 
@@ -75,6 +75,38 @@ async def save_billing_summary(
         },
     )
     return snapshot
+
+
+@router.post("/orders/{order_id}/print-bill", response_model=dict)
+async def print_bill(
+    order_id: int,
+    payload: BillingSaveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.RECEPTIONIST)),
+):
+    order = load_order(db, order_id)
+    snapshot = save_billing(
+        db,
+        order,
+        billing_input=[item.model_dump() for item in payload.items],
+        discount=payload.discount,
+        actor=current_user,
+    )
+    db.commit()
+    await manager.broadcast(
+        "billing_saved",
+        {
+            "table_id": order.table.id,
+            "order_id": order.id,
+            "table_status": order.table.status.value,
+            "subtotal": snapshot["subtotal"],
+            "discount": snapshot["discount"],
+            "final_total": snapshot["final_total"],
+        },
+    )
+    order = load_order(db, order_id)
+    print_status = print_bill_snapshot(order, snapshot, actor_name=current_user.display_name)
+    return {"snapshot": snapshot, **(print_status or {})}
 
 
 @router.post("/orders/{order_id}/checkout", response_model=dict)

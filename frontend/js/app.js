@@ -330,17 +330,17 @@ function renderReceptionView() {
                 <span>Last activity: ${formatDateTime(table.last_activity_at)}</span>
               </div>
               ${
-                runningOrders.length
+                pendingBillsForTable.length
                   ? `
-                    <div class="item-list" style="margin-top: 16px;">
-                      ${runningOrders.map(renderReceptionLiveCheckCard).join("")}
+                    <div class="split-header" style="margin-top: 18px;">
+                      <div>
+                        <h3 class="section-title">Pending bills for ${escapeHtml(table.name)}</h3>
+                        <p class="muted">Reception only works on the selected table. Choose the seat check you want to bill.</p>
+                      </div>
+                      <span class="badge billing">${pendingBillsForTable.length} pending</span>
                     </div>
-                    <div class="status-banner info" style="margin-top: 16px;">
-                      ${
-                        pendingBillsForTable.length
-                          ? "Waiter is still serving this table, and one or more older seat checks from the same table are already waiting in the queue below."
-                          : "Waiter is still serving this table. Each seat check will appear in the billing queue separately after the waiter sends it."
-                      }
+                    <div class="pending-bills-list" style="margin-top: 16px;">
+                      ${pendingBillsForTable.map(renderPendingBillCard).join("")}
                     </div>
                   `
                   : `
@@ -349,26 +349,26 @@ function renderReceptionView() {
                     </div>
                   `
               }
+              ${
+                runningOrders.length
+                  ? `
+                    <div class="split-header" style="margin-top: 18px;">
+                      <div>
+                        <h3 class="section-title">Live checks</h3>
+                        <p class="muted">These checks are still active with the waiter.</p>
+                      </div>
+                      <span class="badge running">${runningOrders.length} live</span>
+                    </div>
+                    <div class="item-list" style="margin-top: 16px;">
+                      ${runningOrders.map(renderReceptionLiveCheckCard).join("")}
+                    </div>
+                  `
+                  : ""
+              }
             </section>
           `
             : ""
         }
-        <section class="panel">
-          <div class="split-header">
-            <div>
-              <h3 class="section-title">Pending bills</h3>
-              <p class="muted">Reception can settle old bills even if the waiter has already reopened the table.</p>
-            </div>
-            <span class="badge billing">${state.pendingBills.length} open</span>
-          </div>
-          <div class="pending-bills-list" style="margin-top: 16px;">
-            ${
-              state.pendingBills.length
-                ? state.pendingBills.map(renderPendingBillCard).join("")
-                : `<div class="empty-box"><h3 class="section-title">No pending bills</h3><p class="muted">Orders moved to billing will appear here until payment is completed.</p></div>`
-            }
-          </div>
-        </section>
         ${
           billingOrder && billing
             ? `
@@ -437,12 +437,14 @@ function renderReceptionView() {
           `
             : `
             <section class="empty-box">
-              <h3 class="section-title">Select a pending bill</h3>
+              <h3 class="section-title">Select a table bill</h3>
               <p class="muted">
                 ${
-                  state.pendingBills.length
-                    ? "Choose a bill from the reception queue to price items, apply discounts, and complete payment."
-                    : "No orders are waiting for billing right now."
+                  !table
+                    ? "Choose a table first."
+                    : pendingBillsForTable.length
+                      ? "Choose one pending bill from the selected table to price items, apply discounts, and complete payment."
+                      : "This table has no pending bills right now."
                 }
               </p>
             </section>
@@ -897,15 +899,10 @@ function renderWaiterEmptyState(table) {
 
 function renderPendingBillCard(order) {
   const selected = order.order_id === state.selectedReceptionOrderId;
-  const table = state.tables.find((entry) => entry.id === order.table_id);
-  const liveOrderText = table?.active_orders_count
-    ? `${table.active_orders_count} live checks are active now.`
-    : table?.status === "empty"
-      ? "Table is free for next guests."
-      : "Waiter still needs to release this table.";
   return `
     <button
       class="pending-bill-card ${selected ? "active" : ""}"
+      type="button"
       data-pending-order-id="${order.order_id}"
       data-pending-table-id="${order.table_id}"
     >
@@ -918,7 +915,7 @@ function renderPendingBillCard(order) {
         <span>Check ${order.order_id}</span>
         <span>${order.items_count} total qty</span>
         <span>Updated ${formatDateTime(order.updated_at)}</span>
-        <span>${escapeHtml(liveOrderText)}</span>
+        <span>${escapeHtml(order.seat_label)} is waiting for payment.</span>
       </div>
     </button>
   `;
@@ -1580,12 +1577,12 @@ function displayStatus(status) {
 
 function renderReceptionTableNotice(table) {
   if (table.pending_bills_count) {
-    return "This table has pending seat checks waiting at reception. Keep working from the billing queue below. The waiter still decides when the whole table becomes empty.";
+    return "This table has pending seat checks waiting at reception. Select the table to open and settle them here.";
   }
   if (table.status === "empty") {
     return "No current service on this table right now.";
   }
-  return "Waiter is still serving this table. Each seat check will appear here separately after the waiter sends it.";
+  return "Waiter is still serving this table. Pending seat checks will show here after the waiter sends them to reception.";
 }
 
 function persistSession() {

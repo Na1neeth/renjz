@@ -1,5 +1,7 @@
 from decimal import Decimal
+import shutil
 import socket
+import subprocess
 
 from app.core.config import get_settings
 from app.models.payment import Payment
@@ -16,12 +18,8 @@ def print_bill_snapshot(order, snapshot: dict, *, actor_name: str) -> dict | Non
     if not settings.receipt_printer_enabled:
         return None
 
-    printer_host = settings.receipt_printer_host.strip()
-    if not printer_host:
-        return None
-
     payload = build_bill_payload(order, snapshot=snapshot, actor_name=actor_name)
-    return send_receipt_payload(payload, host=printer_host, port=settings.receipt_printer_port, timeout_seconds=settings.receipt_printer_timeout_seconds, success_label="Bill")
+    return send_receipt_payload(payload, success_label="Bill")
 
 
 def print_receipt_for_payment(order, payment: Payment, *, actor_name: str) -> dict | None:
@@ -29,15 +27,38 @@ def print_receipt_for_payment(order, payment: Payment, *, actor_name: str) -> di
     if not settings.receipt_printer_enabled:
         return None
 
+    payload = build_payment_receipt_payload(order, payment=payment, actor_name=actor_name)
+    return send_receipt_payload(payload, success_label="Receipt")
+
+
+def send_receipt_payload(payload: bytes, *, success_label: str) -> dict:
+    settings = get_settings()
+    printer_mode = settings.receipt_printer_mode
+    if printer_mode == "cups":
+        return send_cups_receipt_payload(
+            payload,
+            printer_name=settings.receipt_printer_name.strip(),
+            timeout_seconds=settings.receipt_printer_timeout_seconds,
+            success_label=success_label,
+        )
+
     printer_host = settings.receipt_printer_host.strip()
     if not printer_host:
-        return None
+        return {
+            "receipt_printed": False,
+            "receipt_message": "Receipt printer host is not configured.",
+        }
 
-    payload = build_payment_receipt_payload(order, payment=payment, actor_name=actor_name)
-    return send_receipt_payload(payload, host=printer_host, port=settings.receipt_printer_port, timeout_seconds=settings.receipt_printer_timeout_seconds, success_label="Receipt")
+    return send_network_receipt_payload(
+        payload,
+        host=printer_host,
+        port=settings.receipt_printer_port,
+        timeout_seconds=settings.receipt_printer_timeout_seconds,
+        success_label=success_label,
+    )
 
 
-def send_receipt_payload(payload: bytes, *, host: str, port: int, timeout_seconds: float, success_label: str) -> dict:
+def send_network_receipt_payload(payload: bytes, *, host: str, port: int, timeout_seconds: float, success_label: str) -> dict:
     try:
         with socket.create_connection((host, port), timeout=timeout_seconds) as connection:
             connection.sendall(payload)
@@ -50,6 +71,52 @@ def send_receipt_payload(payload: bytes, *, host: str, port: int, timeout_second
     return {
         "receipt_printed": True,
         "receipt_message": f"{success_label} sent to printer at {host}:{port}.",
+    }
+
+
+def send_cups_receipt_payload(payload: bytes, *, printer_name: str, timeout_seconds: float, success_label: str) -> dict:
+    if not printer_name:
+        return {
+            "receipt_printed": False,
+            "receipt_message": "Receipt printer name is not configured for CUPS mode.",
+        }
+
+    lp_path = shutil.which("lp")
+    if not lp_path:
+        return {
+            "receipt_printed": False,
+            "receipt_message": "`lp` command not found on this machine.",
+        }
+
+    try:
+        completed = subprocess.run(
+            [lp_path, "-d", printer_name, "-o", "raw"],
+            input=payload,
+            capture_output=True,
+            timeout=max(timeout_seconds, 1.0),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "receipt_printed": False,
+            "receipt_message": f"`lp` timed out while sending data to printer '{printer_name}'.",
+        }
+    except OSError as exc:
+        return {
+            "receipt_printed": False,
+            "receipt_message": f"Failed to execute `lp` for printer '{printer_name}': {exc}",
+        }
+
+    if completed.returncode != 0:
+        error_output = completed.stderr.decode("utf-8", "replace").strip() or completed.stdout.decode("utf-8", "replace").strip()
+        return {
+            "receipt_printed": False,
+            "receipt_message": error_output or f"`lp` exited with status {completed.returncode} for printer '{printer_name}'.",
+        }
+
+    return {
+        "receipt_printed": True,
+        "receipt_message": f"{success_label} sent to printer queue '{printer_name}'.",
     }
 
 

@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
     business_timezone: str = Field(default="Asia/Kolkata", alias="BUSINESS_TIMEZONE")
     receipt_printer_enabled: bool = Field(default=False, alias="RECEIPT_PRINTER_ENABLED")
+    receipt_printer_mode: str = Field(default="network", alias="RECEIPT_PRINTER_MODE")
     receipt_printer_host: str = Field(default="", alias="RECEIPT_PRINTER_HOST")
     receipt_printer_port: int = Field(default=9100, alias="RECEIPT_PRINTER_PORT")
+    receipt_printer_name: str = Field(default="", alias="RECEIPT_PRINTER_NAME")
     receipt_printer_timeout_seconds: float = Field(default=3.0, alias="RECEIPT_PRINTER_TIMEOUT_SECONDS")
     receipt_printer_chars_per_line: int = Field(default=42, alias="RECEIPT_PRINTER_CHARS_PER_LINE")
     receipt_shop_name: str = Field(default="RENJZ KITCHEN", alias="RECEIPT_SHOP_NAME")
@@ -52,6 +54,16 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [line.strip() for line in value.split("|") if line.strip()]
         return value
+
+    @field_validator("receipt_printer_mode", mode="before")
+    @classmethod
+    def normalize_receipt_printer_mode(cls, value: str) -> str:
+        normalized = str(value or "network").strip().lower()
+        if not normalized:
+            return "network"
+        if normalized not in {"network", "cups"}:
+            raise ValueError("RECEIPT_PRINTER_MODE must be either 'network' or 'cups'")
+        return normalized
 
 
 @lru_cache

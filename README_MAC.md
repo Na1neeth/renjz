@@ -46,7 +46,10 @@ http://127.0.0.1:8000
 
 ## Receipt printer on Mac
 
-This app can print a receipt automatically after checkout to an `ESC/POS` network printer.
+This app can now print in two ways:
+
+- `network` mode: direct to an `ESC/POS` printer at `IP:port`
+- `cups` mode: through the Mac print queue, which is the right option for a USB printer connected to that Mac
 
 Copy the env file if you have not already:
 
@@ -54,24 +57,52 @@ Copy the env file if you have not already:
 cp backend/.env.example backend/.env
 ```
 
-Then set these values in `backend/.env`:
+For a USB printer on the Mac, first add the printer in `System Settings -> Printers & Scanners`.
+
+Then list the available macOS printer queues:
+
+```bash
+lpstat -p
+```
+
+Example output:
+
+```text
+printer EPSON_TM_T82 is idle. enabled since ...
+```
+
+Use that queue name in `backend/.env`:
 
 ```env
 RECEIPT_PRINTER_ENABLED=true
-RECEIPT_PRINTER_HOST=192.168.0.57
-RECEIPT_PRINTER_PORT=9100
+RECEIPT_PRINTER_MODE=cups
+RECEIPT_PRINTER_NAME=EPSON_TM_T82
 RECEIPT_SHOP_NAME=RENJZ KITCHEN
 RECEIPT_ADDRESS_LINES=Bhuvanappa layout, 30, 31, 32|2nd cross road, Tavarekere Main Rd,|DRC Post, Bengaluru, Karnataka 560029
 RECEIPT_PHONE=9400204473
 ```
 
-Notes:
+If you instead have a real network printer, use:
+
+```env
+RECEIPT_PRINTER_ENABLED=true
+RECEIPT_PRINTER_MODE=network
+RECEIPT_PRINTER_HOST=192.168.0.57
+RECEIPT_PRINTER_PORT=9100
+```
+
+Notes for USB on Mac:
+
+- `cups` mode sends the same ESC/POS receipt bytes to the Mac printer queue using `lp -o raw`.
+- The backend must run on the same Mac that the USB printer is plugged into.
+- `Print bill` prints before payment completion.
+- Payment is still saved even if printing fails, and the reception screen will show the print result.
+
+Notes for network printers:
 
 - The printer self-test should show `Protocol: ESC/POS`.
 - The printer host should match the printer IP from the self-test page.
 - `9100` is the common raw network printing port for thermal printers.
-- `Print bill` now prints a sample-style bill before payment completion.
-- Payment is still saved even if printing fails, and the reception screen will show the print result.
 
 ## Staff users
 

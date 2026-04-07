@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
@@ -211,6 +212,7 @@ def backfill_seat_runtime_data(db) -> None:
 
 
 def seed_data() -> None:
+    settings = get_settings()
     db = SessionLocal()
     try:
         user_lookup = {
@@ -277,6 +279,10 @@ def seed_data() -> None:
 
         tables = list(db.scalars(select(RestaurantTable).order_by(RestaurantTable.id)))
         if db.scalar(select(Order.id).limit(1)):
+            db.commit()
+            return
+
+        if not settings.seed_demo_data:
             db.commit()
             return
 

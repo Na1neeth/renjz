@@ -97,11 +97,12 @@ cd 'renjis kitchen'
 
 Then continue with the Mac setup in [README_MAC.md](./README_MAC.md).
 
-## Seeded sample tables
+## Default startup data
 
-- `A2` starts with an active running order
-- `B1` starts with a bill already waiting in reception
-- the rest start as `empty`
+- Fresh databases start clean by default.
+- The app creates staff users and restaurant tables only.
+- No sample orders, billing rows, or payments are inserted unless you explicitly enable demo seeding.
+- To enable demo records on a brand new database, set `SEED_DEMO_DATA=true` in `backend/.env` before first startup.
 
 ## Local setup
 
@@ -140,6 +141,8 @@ The defaults already work with the included Docker setup. If you want a custom c
 ```bash
 cp backend/.env.example backend/.env
 ```
+
+For a clean empty startup, keep `SEED_DEMO_DATA=false`.
 
 ### 4. Run the app
 
@@ -197,6 +200,7 @@ The frontend is static and served directly by FastAPI, so there is no separate N
 - Pricing is only decided by the receptionist during billing.
 - Password hashing uses `pbkdf2_sha256` through `passlib`.
 - The database schema is created automatically on startup for this MVP.
+- Demo/sample business data is disabled by default and only loads when `SEED_DEMO_DATA=true` on a fresh database.
 - PostgreSQL enum values are synced on startup for the current MVP status model.
 
 ## Useful API routes
@@ -228,6 +232,5 @@ The following were verified in the local environment during implementation:
 - FastAPI app boots successfully against PostgreSQL
 - `GET /health` returns `{"status":"ok"}`
 - seeded login works for demo users
-- authenticated `GET /api/tables` returns seeded tables
-- receptionist billing endpoint returns seeded billing data
+- authenticated `GET /api/tables` returns restaurant tables
 - websocket connection handshake succeeds

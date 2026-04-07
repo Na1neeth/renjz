@@ -36,6 +36,8 @@ cd backend
 ../venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+Fresh databases start empty by default. If you ever want demo/sample orders on a brand new database, copy `backend/.env.example` to `backend/.env` and set `SEED_DEMO_DATA=true` before the first app startup.
+
 If everything starts correctly, open:
 
 ```text

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api", alias="API_PREFIX")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     access_token_expire_minutes: int = Field(default=720, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
     business_timezone: str = Field(default="Asia/Kolkata", alias="BUSINESS_TIMEZONE")
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/restaurant_app",

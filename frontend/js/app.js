@@ -12,6 +12,10 @@ const state = {
   selectedReceptionOrderId: null,
   selectedReceptionOrder: null,
   billing: null,
+  receptionSalesToday: null,
+  receptionSalesWeek: null,
+  salesMonth: null,
+  salesSelectedMonth: null,
   kitchenTables: [],
   socket: null,
   notice: "",
@@ -84,6 +88,9 @@ function render() {
   if (state.user.role === "receptionist") {
     bindReceptionEvents();
   }
+  if (state.user.role === "sales") {
+    bindSalesEvents();
+  }
 }
 
 function renderLogin() {
@@ -132,8 +139,8 @@ function renderDashboard() {
               <span>${state.socket && state.socket.readyState === WebSocket.OPEN ? "Connected" : "Reconnecting"}</span>
             </div>
             <div class="compact-actions">
-              <button class="ghost-btn" id="refresh-view">Refresh</button>
-              <button class="secondary-btn" id="logout-btn">Log out</button>
+              <button class="ghost-btn" type="button" id="refresh-view">Refresh</button>
+              <button class="secondary-btn" type="button" id="logout-btn">Log out</button>
             </div>
           </div>
         </div>
@@ -149,6 +156,9 @@ function renderRoleView() {
   }
   if (state.user.role === "kitchen") {
     return renderKitchenView();
+  }
+  if (state.user.role === "sales") {
+    return renderSalesView();
   }
   return renderReceptionView();
 }
@@ -443,6 +453,123 @@ function renderReceptionView() {
   `;
 }
 
+function renderSalesView() {
+  const today = state.receptionSalesToday;
+  const week = state.receptionSalesWeek;
+  const month = state.salesMonth;
+  if (!today || !week || !month) {
+    return `
+      <main class="view-grid">
+        <section class="panel">
+          <h2 class="panel-title">Sales dashboard</h2>
+          <p class="muted">Loading payment totals, trends, and item sales.</p>
+        </section>
+      </main>
+    `;
+  }
+
+  const selectedMonth = state.salesSelectedMonth || formatMonthValue(month.end_date);
+  const [selectedYear, selectedMonthNumber] = parseMonthValue(selectedMonth);
+  const availableYears = getSalesYearOptions();
+  const availableMonths = getSalesMonthOptionsForYear(selectedYear);
+  const monthItemQty = month.items.reduce((sum, item) => sum + item.quantity_sold, 0);
+  return `
+    <main class="view-grid">
+      <section class="panel">
+        <div class="split-header">
+          <div>
+            <h2 class="panel-title">Sales dashboard</h2>
+            <p class="muted">Dedicated reporting view based on completed payments in ${escapeHtml(today.timezone)}.</p>
+          </div>
+          <span class="badge ready">${month.closed_bills_count} closed bills in ${escapeHtml(formatMonthHeading(selectedMonth))}</span>
+        </div>
+        <div class="sales-summary-grid" style="margin-top: 16px;">
+          ${renderSalesMetricCard("Today revenue", moneyLabel(today.net_sales), `${today.closed_bills_count} bills closed today`)}
+          ${renderSalesMetricCard("Today gross", moneyLabel(today.gross_sales), `Discounts ${moneyLabel(today.discount_total)}`)}
+          ${renderSalesMetricCard("7 day revenue", moneyLabel(week.net_sales), `${week.closed_bills_count} bills in 7 days`)}
+          ${renderSalesMetricCard(`${formatMonthHeading(selectedMonth)} revenue`, moneyLabel(month.net_sales), `${month.closed_bills_count} bills in selected month`)}
+          ${renderSalesMetricCard(`${formatMonthHeading(selectedMonth)} items`, String(monthItemQty), `${month.items.length} distinct billed items`)}
+        </div>
+      </section>
+      <section class="panel sales-trend-panel">
+          <div class="split-header">
+            <div>
+              <h3 class="section-title">Revenue trend</h3>
+              <p class="muted">Daily net collections for ${escapeHtml(formatMonthHeading(selectedMonth))}.</p>
+            </div>
+            <div class="sales-filter-row">
+              <div class="field-grid">
+                <label class="label" for="sales-year">Year</label>
+                <select class="select" id="sales-year" name="sales-year">
+                  ${availableYears.map((year) => `<option value="${year}" ${year === selectedYear ? "selected" : ""}>${year}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field-grid">
+                <label class="label" for="sales-month">Month</label>
+                <select class="select" id="sales-month" name="sales-month">
+                  ${availableMonths
+                    .map((monthOption) => `<option value="${monthOption.month}" ${monthOption.month === selectedMonthNumber ? "selected" : ""}>${escapeHtml(monthOption.label)}</option>`)
+                    .join("")}
+                </select>
+              </div>
+            </div>
+          </div>
+          ${renderSalesTrendChart(month)}
+      </section>
+      <section class="panel sales-breakdown-panel">
+        <div class="split-header">
+          <div>
+            <h3 class="section-title">Daily breakdown</h3>
+            <p class="muted">Best view of the selected month.</p>
+          </div>
+        </div>
+          <div class="history-list sales-breakdown-list" style="margin-top: 12px;">
+            ${
+              month.daily_totals.length
+                ? [...month.daily_totals].reverse().map(renderSalesDayRow).join("")
+                : `<div class="empty-box"><p class="muted">No payments recorded yet.</p></div>`
+            }
+          </div>
+        </section>
+    </main>
+  `;
+}
+
+function renderSalesMetricCard(label, value, note) {
+  return `
+    <div class="sales-metric-card">
+      <span class="label">${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <span class="muted">${escapeHtml(note)}</span>
+    </div>
+  `;
+}
+
+function renderSalesTrendChart(report) {
+  const days = [...report.daily_totals].reverse();
+  const maxNetSales = Math.max(...days.map((day) => Number(day.net_sales || 0)), 1);
+  return `
+    <div class="sales-chart" style="margin-top: 16px; grid-template-columns: repeat(${days.length}, minmax(0, 1fr));">
+      ${days
+        .map((day) => {
+          const netSales = Number(day.net_sales || 0);
+          const height = Math.max(10, Math.round((netSales / maxNetSales) * 160));
+          const displayValue = netSales > 0 ? moneyLabel(day.net_sales) : "";
+          return `
+            <div class="sales-chart-column" title="${escapeHtml(formatDateLabel(day.date))} · ${escapeHtml(moneyLabel(day.net_sales))}">
+              <span class="sales-chart-value">${escapeHtml(displayValue)}</span>
+              <div class="sales-chart-bar-shell">
+                <div class="sales-chart-bar" style="height: ${height}px;"></div>
+              </div>
+              <span class="sales-chart-label">${escapeHtml(formatMiniDateLabel(day.date))}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function renderTableButton(table, active) {
   return `
     <button class="table-button ${active ? "active" : ""}" data-table-id="${table.id}">
@@ -728,10 +855,12 @@ function renderBillingRow(item, index) {
         ${item.note ? `<span class="table-note">${escapeHtml(item.note)}</span>` : ""}
         <input type="hidden" class="js-order-item-id" value="${item.order_item_id ?? ""}" />
         <input type="hidden" class="js-source-status" value="${escapeAttribute(item.source_status)}" />
+        <input type="hidden" class="js-item-name" value="${escapeAttribute(item.item_name)}" />
+        <input type="hidden" class="js-item-note" value="${escapeAttribute(item.note || "")}" />
       </td>
-      <td>${item.consumed_quantity}</td>
-      <td><input class="input js-billed-quantity" type="number" min="0" max="99" value="${item.billed_quantity}" /></td>
-      <td><input class="input js-unit-price" type="number" min="0" step="0.01" value="${formatNumber(item.unit_price)}" /></td>
+      <td class="js-consumed-quantity">${item.consumed_quantity}</td>
+      <td><input class="input js-billed-quantity" name="billed_quantity" type="number" min="0" max="99" value="${item.billed_quantity}" /></td>
+      <td><input class="input js-unit-price" name="unit_price" type="number" min="0" step="0.01" value="${formatNumber(item.unit_price)}" /></td>
       <td><input class="checkbox js-include" type="checkbox" ${item.include_in_bill ? "checked" : ""} /></td>
       <td class="js-line-total">${moneyLabel(item.line_total)}</td>
     </tr>
@@ -810,15 +939,32 @@ function renderReceptionLiveCheckCard(order) {
   `;
 }
 
+function renderSalesDayRow(day) {
+  return `
+    <div class="history-row sales-row">
+      <div>
+        <h4>${escapeHtml(formatDateLabel(day.date))}</h4>
+        <div class="meta-stack">
+          <span>${day.closed_bills_count} closed bills</span>
+          <span>Gross ${moneyLabel(day.gross_sales)} · Discount ${moneyLabel(day.discount_total)}</span>
+        </div>
+      </div>
+      <strong>${moneyLabel(day.net_sales)}</strong>
+    </div>
+  `;
+}
+
 function renderBadge(status) {
   return `<span class="badge ${escapeHtml(status)}">${escapeHtml(displayStatus(status))}</span>`;
 }
 
 function bindCommonEvents() {
-  document.querySelector("#logout-btn")?.addEventListener("click", () => {
+  document.querySelector("#logout-btn")?.addEventListener("click", (event) => {
+    event.preventDefault();
     void logout();
   });
-  document.querySelector("#refresh-view")?.addEventListener("click", () => {
+  document.querySelector("#refresh-view")?.addEventListener("click", (event) => {
+    event.preventDefault();
     void refreshRoleData();
   });
   document.querySelectorAll(".table-button[data-table-id]").forEach((button) => {
@@ -996,6 +1142,30 @@ function bindKitchenEvents() {
   });
 }
 
+function bindSalesEvents() {
+  document.querySelector("#sales-year")?.addEventListener("change", async (event) => {
+    const year = Number(event.currentTarget.value);
+    const [, currentMonth] = parseMonthValue(state.salesSelectedMonth || getCurrentMonthValue());
+    const validMonths = getSalesMonthOptionsForYear(year);
+    const fallbackMonth = validMonths.some((entry) => entry.month === currentMonth)
+      ? currentMonth
+      : validMonths[validMonths.length - 1].month;
+    state.salesSelectedMonth = buildMonthValue(year, fallbackMonth);
+    await execute("Loading sales month", async () => {
+      await refreshRoleData();
+    });
+  });
+
+  document.querySelector("#sales-month")?.addEventListener("change", async (event) => {
+    const month = Number(event.currentTarget.value);
+    const [year] = parseMonthValue(state.salesSelectedMonth || getCurrentMonthValue());
+    state.salesSelectedMonth = buildMonthValue(year, month);
+    await execute("Loading sales month", async () => {
+      await refreshRoleData();
+    });
+  });
+}
+
 function bindReceptionEvents() {
   document.querySelectorAll("[data-pending-order-id]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1014,8 +1184,8 @@ function bindReceptionEvents() {
 
   document.querySelector("#save-billing-btn")?.addEventListener("click", async (event) => {
     const orderId = Number(event.currentTarget.dataset.orderId);
+    const payload = collectBillingForm();
     await execute("Saving billing draft", async () => {
-      const payload = collectBillingForm();
       state.billing = await api(`/reception/orders/${orderId}/billing`, {
         method: "PUT",
         body: payload,
@@ -1026,18 +1196,17 @@ function bindReceptionEvents() {
 
   document.querySelector("#checkout-btn")?.addEventListener("click", async (event) => {
     const orderId = Number(event.currentTarget.dataset.orderId);
+    const payload = collectBillingForm();
+    const paymentMethod = document.querySelector("#payment_method").value;
+    const paymentNotes = document.querySelector("#payment_notes").value.trim() || null;
     await execute("Completing payment", async () => {
-      const payload = collectBillingForm();
-      await api(`/reception/orders/${orderId}/billing`, {
-        method: "PUT",
-        body: payload,
-      });
       await api(`/reception/orders/${orderId}/checkout`, {
         method: "POST",
         body: {
+          items: payload.items,
           discount: payload.discount,
-          payment_method: document.querySelector("#payment_method").value,
-          notes: document.querySelector("#payment_notes").value.trim() || null,
+          payment_method: paymentMethod,
+          notes: paymentNotes,
         },
       });
       state.selectedReceptionOrderId = null;
@@ -1094,6 +1263,10 @@ async function logout() {
   state.selectedReceptionOrder = null;
   state.selectedReceptionOrderId = null;
   state.billing = null;
+  state.receptionSalesToday = null;
+  state.receptionSalesWeek = null;
+  state.salesMonth = null;
+  state.salesSelectedMonth = null;
   state.notice = "";
   state.error = "";
   state.busy = "";
@@ -1106,8 +1279,37 @@ async function refreshRoleData() {
     return;
   }
 
+  if (state.user.role === "sales") {
+    const [today, week] = await Promise.all([
+      api("/sales/reports/sales?days=1"),
+      api("/sales/reports/sales?days=7"),
+    ]);
+    if (!state.salesSelectedMonth) {
+      state.salesSelectedMonth = formatMonthValue(today.end_date);
+    }
+    const { startDate, endDate } = getMonthDateRange(state.salesSelectedMonth);
+    const month = await api(`/sales/reports/sales?start_date=${startDate}&end_date=${endDate}`);
+    state.receptionSalesToday = today;
+    state.receptionSalesWeek = week;
+    state.salesMonth = month;
+    state.tables = [];
+    state.pendingBills = [];
+    state.selectedTable = null;
+    state.selectedTableId = null;
+    state.selectedSeatNumbers = [];
+    state.selectedReceptionOrder = null;
+    state.selectedReceptionOrderId = null;
+    state.billing = null;
+    render();
+    return;
+  }
+
   if (state.user.role === "kitchen") {
     state.kitchenTables = await api("/kitchen/active");
+    state.receptionSalesToday = null;
+    state.receptionSalesWeek = null;
+    state.salesMonth = null;
+    state.salesSelectedMonth = null;
     render();
     return;
   }
@@ -1119,11 +1321,19 @@ async function refreshRoleData() {
     ]);
     state.tables = tables;
     state.pendingBills = pendingBills;
+    state.receptionSalesToday = null;
+    state.receptionSalesWeek = null;
+    state.salesMonth = null;
+    state.salesSelectedMonth = null;
   } else {
     state.tables = await api("/tables");
     state.pendingBills = [];
     state.selectedReceptionOrder = null;
     state.selectedReceptionOrderId = null;
+    state.receptionSalesToday = null;
+    state.receptionSalesWeek = null;
+    state.salesMonth = null;
+    state.salesSelectedMonth = null;
   }
 
   if (!state.tables.length) {
@@ -1207,10 +1417,10 @@ function collectBillingForm() {
   const rows = Array.from(document.querySelectorAll("[data-billing-index]"));
   const items = rows.map((row) => ({
     order_item_id: row.querySelector(".js-order-item-id").value ? Number(row.querySelector(".js-order-item-id").value) : null,
-    item_name: row.querySelector("strong").textContent.trim(),
-    note: row.querySelectorAll(".table-note")[1]?.textContent?.trim() || null,
+    item_name: row.querySelector(".js-item-name").value.trim(),
+    note: row.querySelector(".js-item-note").value.trim() || null,
     source_status: row.querySelector(".js-source-status").value,
-    consumed_quantity: Number(row.children[1].textContent.trim() || 0),
+    consumed_quantity: Number(row.querySelector(".js-consumed-quantity").textContent.trim() || 0),
     billed_quantity: Number(row.querySelector(".js-billed-quantity").value || 0),
     unit_price: Number(row.querySelector(".js-unit-price").value || 0),
     include_in_bill: row.querySelector(".js-include").checked,
@@ -1404,6 +1614,10 @@ function invalidateSession(message) {
   state.selectedReceptionOrder = null;
   state.selectedReceptionOrderId = null;
   state.billing = null;
+  state.receptionSalesToday = null;
+  state.receptionSalesWeek = null;
+  state.salesMonth = null;
+  state.salesSelectedMonth = null;
   state.notice = "";
   state.error = message;
   state.busy = "";
@@ -1444,6 +1658,85 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDateLabel(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  const normalized = typeof value === "string" && value.length === 10 ? `${value}T00:00:00` : value;
+  return new Date(normalized).toLocaleDateString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatMiniDateLabel(value) {
+  if (!value) {
+    return "--";
+  }
+  const normalized = typeof value === "string" && value.length === 10 ? `${value}T00:00:00` : value;
+  return new Date(normalized).toLocaleDateString([], {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function getCurrentMonthValue() {
+  const now = new Date();
+  return buildMonthValue(now.getFullYear(), now.getMonth() + 1);
+}
+
+function buildMonthValue(year, month) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function parseMonthValue(value) {
+  const [year, month] = String(value || getCurrentMonthValue()).split("-").map((part) => Number(part));
+  return [year, month];
+}
+
+function formatMonthValue(value) {
+  const [year, month] = parseMonthValue(String(value).slice(0, 7));
+  return buildMonthValue(year, month);
+}
+
+function formatMonthHeading(value) {
+  const [year, month] = parseMonthValue(value);
+  return new Date(year, month - 1, 1).toLocaleDateString([], {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getSalesYearOptions() {
+  const currentYear = new Date().getFullYear();
+  const years = [];
+  for (let year = 2026; year <= currentYear; year += 1) {
+    years.push(year);
+  }
+  return years;
+}
+
+function getSalesMonthOptionsForYear(year) {
+  const current = new Date();
+  const minMonth = year === 2026 ? 4 : 1;
+  const maxMonth = year === current.getFullYear() ? current.getMonth() + 1 : 12;
+  const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const months = [];
+  for (let month = minMonth; month <= maxMonth; month += 1) {
+    months.push({ month, label: labels[month - 1] });
+  }
+  return months;
+}
+
+function getMonthDateRange(monthValue) {
+  const [year, month] = parseMonthValue(monthValue);
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { startDate, endDate };
 }
 
 function capitalize(value) {

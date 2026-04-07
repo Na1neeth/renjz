@@ -84,6 +84,13 @@ async def complete_checkout(
     current_user: User = Depends(require_roles(UserRole.RECEPTIONIST)),
 ):
     order = load_order(db, order_id)
+    save_billing(
+        db,
+        order,
+        billing_input=[item.model_dump() for item in payload.items],
+        discount=payload.discount,
+        actor=current_user,
+    )
     payment_summary = checkout_order(
         db,
         order,

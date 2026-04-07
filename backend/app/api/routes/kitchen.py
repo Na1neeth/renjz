@@ -50,4 +50,3 @@ async def change_kitchen_status(
         },
     )
     return serialize_table(order.table, kitchen_view=True)
-

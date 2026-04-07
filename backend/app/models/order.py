@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer
+from sqlalchemy import DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
-from app.models.enums import OrderStatus
+from app.models.enums import OrderStatus, db_enum
 
 
 class Order(TimestampMixin, Base):
@@ -14,7 +14,7 @@ class Order(TimestampMixin, Base):
     table_id: Mapped[int] = mapped_column(ForeignKey("tables.id"), index=True, nullable=False)
     service_cycle: Mapped[int] = mapped_column(Integer, default=1, nullable=False, index=True)
     status: Mapped[OrderStatus] = mapped_column(
-        Enum(OrderStatus), default=OrderStatus.RUNNING, nullable=False, index=True
+        db_enum(OrderStatus, "orderstatus"), default=OrderStatus.RUNNING, nullable=False, index=True
     )
     opened_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     closed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

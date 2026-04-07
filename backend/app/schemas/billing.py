@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ class BillingSaveRequest(BaseModel):
 
 
 class BillingCheckoutRequest(BaseModel):
+    items: list[BillingItemInput]
     discount: float = Field(default=0, ge=0, le=100000)
     payment_method: str = Field(min_length=1, max_length=50)
     notes: str | None = Field(default=None, max_length=1000)
@@ -61,3 +62,36 @@ class PendingBillingOrderRead(BaseModel):
     items_count: int
     subtotal: float
     updated_at: datetime | None
+
+
+class SalesPaymentMethodRead(BaseModel):
+    payment_method: str
+    closed_bills_count: int
+    total_amount: float
+
+
+class SalesItemSummaryRead(BaseModel):
+    item_name: str
+    quantity_sold: int
+    revenue: float
+
+
+class SalesDaySummaryRead(BaseModel):
+    date: date
+    closed_bills_count: int
+    gross_sales: float
+    discount_total: float
+    net_sales: float
+
+
+class SalesReportRead(BaseModel):
+    start_date: date
+    end_date: date
+    timezone: str
+    closed_bills_count: int
+    gross_sales: float
+    discount_total: float
+    net_sales: float
+    payment_methods: list[SalesPaymentMethodRead]
+    items: list[SalesItemSummaryRead]
+    daily_totals: list[SalesDaySummaryRead]

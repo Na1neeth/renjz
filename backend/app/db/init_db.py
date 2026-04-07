@@ -54,6 +54,12 @@ STAFF_USERS = [
         "role": UserRole.KITCHEN,
     },
     {
+        "username": "sales1",
+        "display_name": "Sales 1",
+        "password": "4001",
+        "role": UserRole.SALES,
+    },
+    {
         "username": "waiter1",
         "display_name": "Waiter 1",
         "password": "1001",
@@ -97,6 +103,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     sync_postgres_enums()
     sync_additive_schema()
+    migrate_legacy_enum_rows()
     seed_data()
 
 
@@ -136,6 +143,39 @@ def sync_additive_schema() -> None:
         connection.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_key VARCHAR(64)"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_expires_at TIMESTAMP WITH TIME ZONE"))
+
+
+def migrate_legacy_enum_rows() -> None:
+    if engine.dialect.name != "postgresql":
+        return
+
+    enum_updates = [
+        ("users", "role", "userrole", UserRole),
+        ("tables", "status", "tablestatus", TableStatus),
+        ("orders", "status", "orderstatus", OrderStatus),
+        ("order_items", "item_status", "orderitemstatus", OrderItemStatus),
+        ("order_items", "kitchen_status", "kitchenitemstatus", KitchenItemStatus),
+        ("order_activity_logs", "actor_role", "userrole", UserRole),
+        ("order_activity_logs", "action_type", "activityaction", ActivityAction),
+    ]
+
+    with engine.begin() as connection:
+        for table_name, column_name, enum_type_name, enum_cls in enum_updates:
+            for member in enum_cls:
+                legacy_value = member.name
+                current_value = member.value
+                if legacy_value == current_value:
+                    continue
+                connection.execute(
+                    text(
+                        f"""
+                        UPDATE {table_name}
+                        SET {column_name} = CAST(:current_value AS {enum_type_name})
+                        WHERE {column_name}::text = :legacy_value
+                        """
+                    ),
+                    {"current_value": current_value, "legacy_value": legacy_value},
+                )
 
 
 def backfill_seat_runtime_data(db) -> None:

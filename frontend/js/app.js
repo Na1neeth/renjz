@@ -224,6 +224,9 @@ function renderWaiterView() {
 }
 
 function renderKitchenView() {
+  const kitchenTables = [...state.kitchenTables].sort(
+    (left, right) => compareDateAsc(left.last_activity_at, right.last_activity_at) || left.id - right.id,
+  );
   return `
     <main class="view-grid">
       <section class="panel">
@@ -232,12 +235,23 @@ function renderKitchenView() {
       </section>
       <section class="kitchen-grid">
         ${
-          state.kitchenTables.length
-            ? state.kitchenTables
+          kitchenTables.length
+            ? kitchenTables
                 .map((table) => {
-                  const entries = table.active_orders.flatMap((order) =>
-                    order.items.map((item) => ({ order, item })),
-                  );
+                  const entries = table.active_orders
+                    .flatMap((order) => order.items.map((item) => ({ order, item })))
+                    .sort(
+                      (left, right) =>
+                        compareDateAsc(
+                          left.item.updated_at || left.item.created_at,
+                          right.item.updated_at || right.item.created_at,
+                        ) ||
+                        compareDateAsc(
+                          left.order.updated_at || left.order.opened_at,
+                          right.order.updated_at || right.order.opened_at,
+                        ) ||
+                        left.item.id - right.item.id,
+                    );
                   const activeItems = entries.filter((entry) => entry.item.item_status === "active");
                   const cancelledItems = entries.filter((entry) => entry.item.item_status === "cancelled");
                   const latestUpdate = table.active_orders.reduce((latest, order) => {
@@ -1412,6 +1426,12 @@ function scrollToTableDetails() {
 function flashClass(itemId) {
   const kind = state.flashes[itemId];
   return kind ? `flash-${kind}` : "";
+}
+
+function compareDateAsc(left, right) {
+  const leftTime = left ? new Date(left).getTime() : 0;
+  const rightTime = right ? new Date(right).getTime() : 0;
+  return leftTime - rightTime;
 }
 
 function formatDateTime(value) {

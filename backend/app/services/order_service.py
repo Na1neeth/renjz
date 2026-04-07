@@ -99,6 +99,20 @@ def get_pending_billing_orders_for_table(table: RestaurantTable) -> list[Order]:
     ]
 
 
+def sort_orders_oldest_first(orders: list[Order]) -> list[Order]:
+    return sorted(
+        orders,
+        key=lambda order: (order.updated_at or order.opened_at, order.id),
+    )
+
+
+def sort_items_oldest_first(items: list[OrderItem]) -> list[OrderItem]:
+    return sorted(
+        items,
+        key=lambda item: (item.updated_at or item.created_at, item.id),
+    )
+
+
 def get_reserved_orders_for_table(table: RestaurantTable) -> list[Order]:
     if table.status == TableStatus.EMPTY:
         return []
@@ -154,7 +168,17 @@ def list_tables(db: Session) -> list[RestaurantTable]:
 
 def list_active_kitchen_tables(db: Session) -> list[RestaurantTable]:
     tables = list_tables(db)
-    return [table for table in tables if get_active_orders_for_table(table)]
+    active_tables = [table for table in tables if get_active_orders_for_table(table)]
+    return sorted(
+        active_tables,
+        key=lambda table: (
+            max(
+                (order.updated_at or order.opened_at for order in get_active_orders_for_table(table)),
+                default=table.updated_at,
+            ),
+            table.id,
+        ),
+    )
 
 
 def ensure_order_is_editable(order: Order) -> None:
@@ -283,8 +307,8 @@ def serialize_payment(payment: Payment) -> dict:
     }
 
 
-def serialize_order(order: Order) -> dict:
-    items = sorted(order.items, key=lambda item: item.id)
+def serialize_order(order: Order, *, kitchen_view: bool = False) -> dict:
+    items = sort_items_oldest_first(order.items) if kitchen_view else sorted(order.items, key=lambda item: item.id)
     activities = sorted(order.activities, key=lambda log: log.id, reverse=True)
     payments = sorted(order.payments, key=lambda payment: payment.id, reverse=True)
     seat_numbers = get_order_seat_numbers(order)
@@ -305,9 +329,10 @@ def serialize_order(order: Order) -> dict:
     }
 
 
-def serialize_table(table: RestaurantTable) -> dict:
+def serialize_table(table: RestaurantTable, *, kitchen_view: bool = False) -> dict:
     active_orders = get_active_orders_for_table(table)
-    active_order = active_orders[-1] if active_orders else None
+    ordered_active_orders = sort_orders_oldest_first(active_orders) if kitchen_view else active_orders
+    active_order = ordered_active_orders[-1] if ordered_active_orders else None
     pending_billing_orders = get_pending_billing_orders_for_table(table)
     latest_order = get_latest_order_for_table(table)
     floor_status = get_table_floor_status(table)
@@ -358,8 +383,8 @@ def serialize_table(table: RestaurantTable) -> dict:
         "active_items_count": sum(item.quantity for item in active_items),
         "ready_items_count": sum(item.quantity for item in ready_items),
         "last_activity_at": last_activity_at,
-        "current_order": serialize_order(active_order) if active_order else None,
-        "active_orders": [serialize_order(order) for order in active_orders],
+        "current_order": serialize_order(active_order, kitchen_view=kitchen_view) if active_order else None,
+        "active_orders": [serialize_order(order, kitchen_view=kitchen_view) for order in ordered_active_orders],
         "seats": seats,
     }
 

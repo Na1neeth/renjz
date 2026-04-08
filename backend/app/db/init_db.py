@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
@@ -138,12 +138,30 @@ def sync_postgres_enums() -> None:
 
 
 def sync_additive_schema() -> None:
+    additive_columns = {
+        "tables": {
+            "seat_count": "INTEGER",
+            "service_cycle": "INTEGER",
+        },
+        "orders": {
+            "service_cycle": "INTEGER",
+        },
+        "users": {
+            "active_session_key": "VARCHAR(64)",
+            "active_session_expires_at": "TIMESTAMP WITH TIME ZONE",
+        },
+    }
+
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS seat_count INTEGER"))
-        connection.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
-        connection.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_cycle INTEGER"))
-        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_key VARCHAR(64)"))
-        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_expires_at TIMESTAMP WITH TIME ZONE"))
+        inspector = inspect(connection)
+        for table_name, columns in additive_columns.items():
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, column_type in columns.items():
+                if column_name in existing_columns:
+                    continue
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+                )
 
 
 def migrate_legacy_enum_rows() -> None:

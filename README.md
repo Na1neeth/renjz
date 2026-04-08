@@ -231,6 +231,6 @@ The following were verified in the local environment during implementation:
 - PostgreSQL container starts from `docker compose`
 - FastAPI app boots successfully against PostgreSQL
 - `GET /health` returns `{"status":"ok"}`
-- seeded login works for demo users
+- seeded login works for staff users
 - authenticated `GET /api/tables` returns restaurant tables
 - websocket connection handshake succeeds

@@ -273,7 +273,7 @@ function renderKitchenView() {
                   return `
                     <article class="order-box kitchen-table-card">
                       <div class="badge-row">
-                        <span class="badge running">${escapeHtml(table.name)}</span>
+                        <span class="badge running kitchen-table-name">${escapeHtml(table.name)}</span>
                         <span class="badge billing">${table.active_orders_count} checks</span>
                         <span class="badge ready">${table.ready_items_count} ready</span>
                       </div>
@@ -712,7 +712,7 @@ function renderSeatChip(seat) {
 function renderWaiterCheckCard(order) {
   const activeLines = order.items.filter((item) => item.item_status === "active").length;
   return `
-    <div class="order-box" style="margin-top: 18px;">
+    <div class="order-box" data-order-card-id="${order.id}" style="margin-top: 18px;">
       <div class="split-header">
         <div>
           <div class="badge-row">
@@ -1049,7 +1049,7 @@ function bindWaiterEvents() {
         });
         state.notice = "Bill sent to reception.";
         await refreshRoleData();
-      });
+      }, { scrollAnchorSelector: `[data-order-card-id="${orderId}"]` });
     });
   });
 
@@ -1068,7 +1068,7 @@ function bindWaiterEvents() {
           },
         });
         await refreshRoleData();
-      });
+      }, { scrollAnchorSelector: `[data-order-card-id="${orderId}"]` });
     });
   });
 
@@ -1106,7 +1106,7 @@ function bindWaiterEvents() {
         });
         state.notice = "Item changes saved.";
         await refreshRoleData();
-      });
+      }, { scrollAnchorSelector: `[data-order-card-id="${orderId}"]` });
     });
   });
 
@@ -1120,7 +1120,7 @@ function bindWaiterEvents() {
       await execute("Cancelling item", async () => {
         await api(`/orders/${orderId}/items/${itemId}/cancel`, { method: "POST" });
         await refreshRoleData();
-      });
+      }, { scrollAnchorSelector: `[data-order-card-id="${orderId}"]` });
     });
   });
 }
@@ -1474,7 +1474,8 @@ function buildPrintBillNotice(result) {
   return "Bill saved.";
 }
 
-async function execute(label, work) {
+async function execute(label, work, options = {}) {
+  const scrollAnchor = captureScrollAnchor(options.scrollAnchorSelector);
   state.error = "";
   state.notice = "";
   state.busy = label;
@@ -1486,7 +1487,37 @@ async function execute(label, work) {
   } finally {
     state.busy = "";
     render();
+    restoreScrollAnchor(scrollAnchor);
   }
+}
+
+function captureScrollAnchor(selector) {
+  if (window.innerWidth > 1100) {
+    return null;
+  }
+  const anchor = selector ? document.querySelector(selector) : document.querySelector("#table-detail-panel");
+  if (!anchor) {
+    return null;
+  }
+  return {
+    selector,
+    topOffset: anchor.getBoundingClientRect().top,
+  };
+}
+
+function restoreScrollAnchor(anchorState) {
+  if (!anchorState || window.innerWidth > 1100) {
+    return;
+  }
+  window.setTimeout(() => {
+    const selector = anchorState.selector || "#table-detail-panel";
+    const anchor = document.querySelector(selector) || document.querySelector("#table-detail-panel");
+    if (!anchor) {
+      return;
+    }
+    const nextTop = window.scrollY + anchor.getBoundingClientRect().top - anchorState.topOffset;
+    window.scrollTo({ top: Math.max(nextTop, 0), behavior: "auto" });
+  }, 60);
 }
 
 function connectSocket() {

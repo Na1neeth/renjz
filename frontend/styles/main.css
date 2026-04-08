@@ -782,6 +782,15 @@ button {
   padding: 18px;
 }
 
+.kitchen-table-name {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  min-width: 64px;
+  justify-content: center;
+}
+
 .kitchen-meta,
 .kitchen-item-meta {
   gap: 4px;
@@ -998,6 +1007,11 @@ button {
 
   .kitchen-table-card {
     padding: 14px;
+  }
+
+  .kitchen-table-name {
+    font-size: 1.05rem;
+    min-width: 58px;
   }
 
   .kitchen-item-card {

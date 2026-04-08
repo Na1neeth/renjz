@@ -33,6 +33,7 @@ def utcnow() -> datetime:
 def load_table(db: Session, table_id: int) -> RestaurantTable:
     table = db.scalar(
         select(RestaurantTable)
+        .execution_options(populate_existing=True)
         .where(RestaurantTable.id == table_id)
         .options(
             selectinload(RestaurantTable.orders).selectinload(Order.items),
@@ -50,6 +51,7 @@ def load_table(db: Session, table_id: int) -> RestaurantTable:
 def load_order(db: Session, order_id: int) -> Order:
     order = db.scalar(
         select(Order)
+        .execution_options(populate_existing=True)
         .where(Order.id == order_id)
         .options(
             selectinload(Order.table),
@@ -163,6 +165,7 @@ def list_tables(db: Session) -> list[RestaurantTable]:
     return list(
         db.scalars(
             select(RestaurantTable)
+            .execution_options(populate_existing=True)
             .order_by(RestaurantTable.id)
             .options(
                 selectinload(RestaurantTable.orders).selectinload(Order.items),

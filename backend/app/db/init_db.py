@@ -9,6 +9,7 @@ from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.models.billing_item import BillingItem
+from app.models.menu_item import MenuItem
 from app.models.enums import (
     ActivityAction,
     KitchenItemStatus,
@@ -23,6 +24,7 @@ from app.models.order_item import OrderItem
 from app.models.order_seat import OrderSeat
 from app.models.table import RestaurantTable
 from app.models.user import User
+from app.services.menu_service import normalize_menu_item_name
 
 
 TABLE_LABELS = [
@@ -90,6 +92,15 @@ STAFF_USERS = [
         "password": "1005",
         "role": UserRole.WAITER,
     },
+]
+
+DEFAULT_MENU_ITEMS = [
+    "Butter naan",
+    "Paneer curry",
+    "Lime soda",
+    "Tomato soup",
+    "Masala dosa",
+    "Filter coffee",
 ]
 
 
@@ -294,6 +305,7 @@ def seed_data() -> None:
         db.flush()
 
         backfill_seat_runtime_data(db)
+        seed_menu_items(db)
 
         tables = list(db.scalars(select(RestaurantTable).order_by(RestaurantTable.id)))
         if db.scalar(select(Order.id).limit(1)):
@@ -584,3 +596,30 @@ def seed_data() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def seed_menu_items(db) -> None:
+    if db.scalar(select(MenuItem.id).limit(1)):
+        return
+
+    names = []
+    seen = set()
+
+    historical_names = db.scalars(select(OrderItem.item_name).distinct().order_by(OrderItem.item_name))
+    for raw_name in historical_names:
+        normalized_name = normalize_menu_item_name(raw_name)
+        if not normalized_name or normalized_name.lower() in seen:
+            continue
+        names.append(normalized_name)
+        seen.add(normalized_name.lower())
+
+    if not names:
+        for raw_name in DEFAULT_MENU_ITEMS:
+            normalized_name = normalize_menu_item_name(raw_name)
+            if normalized_name.lower() in seen:
+                continue
+            names.append(normalized_name)
+            seen.add(normalized_name.lower())
+
+    db.add_all([MenuItem(name=name) for name in names])
+    db.flush()

@@ -17,6 +17,7 @@ const state = {
   salesMonth: null,
   salesSelectedMonth: null,
   kitchenTables: [],
+  menuItems: [],
   socket: null,
   notice: "",
   error: "",
@@ -242,6 +243,32 @@ function renderKitchenView() {
       <section class="panel">
         <h2 class="panel-title">Kitchen dashboard</h2>
         <p class="muted">Simple kitchen queue for phone use. Only new and ready are used here.</p>
+      </section>
+      <section class="panel">
+        <div class="split-header">
+          <div>
+            <h2 class="panel-title">Today's menu</h2>
+            <p class="muted">Kitchen controls what waiters can send. Add or remove items here whenever the menu changes.</p>
+          </div>
+          <span class="badge running">${state.menuItems.length} items</span>
+        </div>
+        <form id="menu-item-form" class="form-grid" style="margin-top: 18px;">
+          <div class="field-grid span-9">
+            <label class="label" for="menu-item-name">Menu item</label>
+            <input id="menu-item-name" class="input" name="name" placeholder="e.g. Ghee roast" required />
+          </div>
+          <div class="field-grid span-3">
+            <label class="label">&nbsp;</label>
+            <button class="primary-btn" type="submit">Add item</button>
+          </div>
+        </form>
+        <div class="item-list" style="margin-top: 16px;">
+          ${
+            state.menuItems.length
+              ? state.menuItems.map((item) => renderKitchenMenuCard(item)).join("")
+              : `<div class="empty-box"><p class="muted">No menu items yet. Add today's dishes here so waiters can select them.</p></div>`
+          }
+        </div>
       </section>
       <section class="kitchen-grid">
         ${
@@ -711,6 +738,7 @@ function renderSeatChip(seat) {
 
 function renderWaiterCheckCard(order) {
   const activeLines = order.items.filter((item) => item.item_status === "active").length;
+  const hasMenuItems = state.menuItems.length > 0;
   return `
     <div class="order-box" data-order-card-id="${order.id}" style="margin-top: 18px;">
       <div class="split-header">
@@ -730,10 +758,25 @@ function renderWaiterCheckCard(order) {
       ${
         order.status === "running"
           ? `
+            ${
+              hasMenuItems
+                ? `
+                  <div class="status-banner info" style="margin-top: 18px;">
+                    Waiters can send only the items listed in today's kitchen menu.
+                  </div>
+                `
+                : `
+                  <div class="status-banner alert" style="margin-top: 18px;">
+                    Today's menu is empty. Ask the kitchen to add items before sending orders.
+                  </div>
+                `
+            }
             <form class="form-grid js-add-item-form" data-order-id="${order.id}" style="margin-top: 18px;">
               <div class="field-grid span-6">
                 <label class="label">Item</label>
-                <input class="input" name="item_name" placeholder="e.g. Butter naan" required />
+                <select class="select" name="item_name" ${hasMenuItems ? "required" : "disabled"}>
+                  ${renderMenuOptions("", { includePlaceholder: true })}
+                </select>
               </div>
               <div class="field-grid span-3">
                 <label class="label">Qty</label>
@@ -744,7 +787,7 @@ function renderWaiterCheckCard(order) {
                 <input class="input" name="note" placeholder="less spicy, no ice, extra crispy..." />
               </div>
               <div class="span-12">
-                <button class="primary-btn" type="submit">Send to kitchen</button>
+                <button class="primary-btn" type="submit" ${hasMenuItems ? "" : "disabled"}>Send to kitchen</button>
               </div>
             </form>
           `
@@ -777,7 +820,9 @@ function renderWaiterItemCard(order, item) {
       <div class="form-grid" style="margin-top: 14px;">
         <div class="field-grid span-6">
           <label class="label">Item</label>
-          <input class="input js-item-name" value="${escapeAttribute(item.item_name)}" ${readOnly ? "disabled" : ""} />
+          <select class="select js-item-name" ${readOnly ? "disabled" : ""}>
+            ${renderMenuOptions(item.item_name)}
+          </select>
         </div>
         <div class="field-grid span-3">
           <label class="label">Qty</label>
@@ -797,6 +842,45 @@ function renderWaiterItemCard(order, item) {
               <button class="ghost-btn js-cancel-item" data-order-id="${order.id}" data-item-id="${item.id}">Cancel item</button>
             `
         }
+      </div>
+    </div>
+  `;
+}
+
+function renderMenuOptions(selectedName, options = {}) {
+  const includePlaceholder = options.includePlaceholder === true;
+  const hasSelectedMenuItem = state.menuItems.some((item) => item.name === selectedName);
+  let html = includePlaceholder
+    ? `<option value="" ${selectedName ? "" : "selected"} disabled>Select from today's menu</option>`
+    : "";
+
+  if (selectedName && !hasSelectedMenuItem) {
+    html += `<option value="${escapeAttribute(selectedName)}" selected>${escapeHtml(selectedName)} (not in today's menu)</option>`;
+  }
+
+  html += state.menuItems
+    .map(
+      (item) => `
+        <option value="${escapeAttribute(item.name)}" ${item.name === selectedName ? "selected" : ""}>${escapeHtml(item.name)}</option>
+      `,
+    )
+    .join("");
+
+  return html;
+}
+
+function renderKitchenMenuCard(item) {
+  return `
+    <div class="item-card menu-item-card">
+      <div class="menu-item-row">
+        <div>
+          <h4>${escapeHtml(item.name)}</h4>
+          <div class="meta-stack kitchen-item-meta">
+            <span>Added ${formatDateTime(item.created_at)}</span>
+            <span>Last updated ${formatDateTime(item.updated_at)}</span>
+          </div>
+        </div>
+        <button class="ghost-btn js-delete-menu-item" type="button" data-menu-item-id="${item.id}" data-menu-item-name="${escapeAttribute(item.name)}">Delete</button>
       </div>
     </div>
   `;
@@ -1126,6 +1210,35 @@ function bindWaiterEvents() {
 }
 
 function bindKitchenEvents() {
+  document.querySelector("#menu-item-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    await execute("Adding menu item", async () => {
+      await api("/menu", {
+        method: "POST",
+        body: { name: String(formData.get("name") || "") },
+      });
+      state.notice = "Today's menu updated.";
+      await refreshRoleData();
+    });
+  });
+
+  document.querySelectorAll(".js-delete-menu-item").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const itemName = button.dataset.menuItemName || "this item";
+      if (!window.confirm(`Remove ${itemName} from today's menu?`)) {
+        return;
+      }
+      await execute("Removing menu item", async () => {
+        await api(`/menu/${button.dataset.menuItemId}`, {
+          method: "DELETE",
+        });
+        state.notice = "Today's menu updated.";
+        await refreshRoleData();
+      });
+    });
+  });
+
   document.querySelectorAll("[data-kitchen-status]").forEach((button) => {
     button.addEventListener("click", async () => {
       await execute("Updating kitchen status", async () => {
@@ -1255,6 +1368,7 @@ async function logout() {
   clearSession();
   state.tables = [];
   state.kitchenTables = [];
+  state.menuItems = [];
   state.selectedTable = null;
   state.selectedTableId = null;
   state.selectedSeatNumbers = [];
@@ -1292,6 +1406,7 @@ async function refreshRoleData() {
     state.receptionSalesWeek = week;
     state.salesMonth = month;
     state.tables = [];
+    state.menuItems = [];
     state.pendingBills = [];
     state.selectedTable = null;
     state.selectedTableId = null;
@@ -1304,7 +1419,9 @@ async function refreshRoleData() {
   }
 
   if (state.user.role === "kitchen") {
-    state.kitchenTables = await api("/kitchen/active");
+    const [kitchenTables, menuItems] = await Promise.all([api("/kitchen/active"), api("/menu")]);
+    state.kitchenTables = kitchenTables;
+    state.menuItems = menuItems;
     state.receptionSalesToday = null;
     state.receptionSalesWeek = null;
     state.salesMonth = null;
@@ -1319,13 +1436,16 @@ async function refreshRoleData() {
       api("/reception/orders/pending"),
     ]);
     state.tables = tables;
+    state.menuItems = [];
     state.pendingBills = pendingBills;
     state.receptionSalesToday = null;
     state.receptionSalesWeek = null;
     state.salesMonth = null;
     state.salesSelectedMonth = null;
   } else {
-    state.tables = await api("/tables");
+    const [tables, menuItems] = await Promise.all([api("/tables"), api("/menu")]);
+    state.tables = tables;
+    state.menuItems = menuItems;
     state.pendingBills = [];
     state.selectedReceptionOrder = null;
     state.selectedReceptionOrderId = null;
@@ -1613,6 +1733,11 @@ function humanizeEvent(type, payload) {
     billing_saved: "Billing draft saved.",
     payment_completed: "Payment completed.",
   };
+  if (type === "menu_updated") {
+    const actionLabel = payload?.action === "deleted" ? "removed" : "updated";
+    const itemLabel = payload?.item_name ? ` ${payload.item_name}.` : "";
+    return `Today's menu ${actionLabel}.${itemLabel}`;
+  }
   if (payload?.table_id) {
     const tableName = state.tables.find((table) => table.id === payload.table_id)?.name || `Table ${payload.table_id}`;
     return `${names[type] || "Live update received."} ${tableName}.`;
@@ -1657,6 +1782,7 @@ function invalidateSession(message) {
   clearSession();
   state.tables = [];
   state.kitchenTables = [];
+  state.menuItems = [];
   state.selectedTable = null;
   state.selectedTableId = null;
   state.selectedSeatNumbers = [];

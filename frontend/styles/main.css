@@ -801,6 +801,21 @@ button {
   padding: 14px;
 }
 
+.menu-item-card {
+  padding: 16px;
+}
+
+.menu-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.menu-item-row h4 {
+  margin: 0 0 6px;
+}
+
 .kitchen-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1007,6 +1022,11 @@ button {
 
   .kitchen-table-card {
     padding: 14px;
+  }
+
+  .menu-item-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .kitchen-table-name {

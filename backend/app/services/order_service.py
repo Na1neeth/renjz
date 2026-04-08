@@ -19,6 +19,7 @@ from app.models.order_seat import OrderSeat
 from app.models.payment import Payment
 from app.models.table import RestaurantTable
 from app.models.user import User
+from app.services.menu_service import resolve_menu_item_name
 
 
 ACTIVE_ORDER_STATUSES = (OrderStatus.RUNNING,)
@@ -503,10 +504,11 @@ def add_item_to_order(
     actor: User,
 ) -> OrderItem:
     ensure_order_is_editable(order)
+    resolved_item_name = resolve_menu_item_name(db, item_name)
     now = utcnow()
     item = OrderItem(
         order_id=order.id,
-        item_name=item_name.strip(),
+        item_name=resolved_item_name,
         quantity=quantity,
         note=note.strip() if note else None,
         created_by_id=actor.id,
@@ -555,8 +557,9 @@ def update_order_item(
     previous_name = item.item_name
     previous_quantity = item.quantity
     previous_note = item.note
+    resolved_item_name = resolve_menu_item_name(db, item_name, allow_existing_name=item.item_name)
 
-    item.item_name = item_name.strip()
+    item.item_name = resolved_item_name
     item.quantity = quantity
     item.note = note.strip() if note else None
     item.updated_by_id = actor.id

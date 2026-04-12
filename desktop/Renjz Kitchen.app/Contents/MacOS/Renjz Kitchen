@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -u
+
+export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+APP_ROOT="/Users/renjz/Desktop/renjzkitchen/renjz"
+LOG_FILE="$APP_ROOT/.renjis-launcher.log"
+RUNNER="$APP_ROOT/desktop/Run Renjz Kitchen.command"
+
+show_dialog() {
+  local title="$1"
+  local message="$2"
+  /usr/bin/osascript -e "display dialog \"$message\" buttons {\"OK\"} default button \"OK\" with title \"$title\"" >/dev/null 2>&1 || true
+}
+
+{
+  echo "==== $(date '+%Y-%m-%d %H:%M:%S') ===="
+  echo "Opening Renjz Kitchen runner from $APP_ROOT"
+
+  if [[ ! -d "$APP_ROOT" ]]; then
+    echo "Project folder not found: $APP_ROOT"
+    show_dialog "Renjz Kitchen" "Project folder not found: $APP_ROOT"
+    exit 1
+  fi
+
+  if [[ ! -x "$RUNNER" ]]; then
+    echo "Runner is missing or not executable: $RUNNER"
+    show_dialog "Renjz Kitchen" "Runner is missing or not executable: $RUNNER"
+    exit 1
+  fi
+
+  /usr/bin/open "$RUNNER"
+  echo "Opened runner in Terminal."
+} >>"$LOG_FILE" 2>&1

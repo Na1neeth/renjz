@@ -1301,6 +1301,7 @@ function bindReceptionEvents() {
         body: payload,
       });
       state.billing = result.snapshot || state.billing;
+      printBillingSnapshot(state.billing);
       state.notice = buildPrintBillNotice(result);
       await refreshRoleData();
     });
@@ -1586,12 +1587,145 @@ function buildCheckoutNotice(result) {
 
 function buildPrintBillNotice(result) {
   if (result?.receipt_printed === true) {
-    return "Bill printed.";
+    return "Bill sent to printer. Browser print copy opened too.";
   }
   if (result?.receipt_printed === false) {
-    return `Bill saved, but printing failed: ${result.receipt_message}`;
+    return `Bill saved. Browser print copy opened because printer printing failed: ${result.receipt_message}`;
   }
-  return "Bill saved.";
+  return "Bill saved. Browser print copy opened.";
+}
+
+function printBillingSnapshot(billing) {
+  if (!billing) {
+    return;
+  }
+  const printableItems = billing.items.filter((item) => item.include_in_bill && Number(item.billed_quantity || 0) > 0);
+  const printWindow = window.open("", "renjz-bill-print", "width=420,height=700");
+  if (!printWindow) {
+    state.notice = "Bill saved. Allow popups to open the printable bill.";
+    return;
+  }
+
+  const rows = printableItems
+    .map(
+      (item) => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(item.item_name)}</strong>
+            ${item.note ? `<span>${escapeHtml(item.note)}</span>` : ""}
+          </td>
+          <td class="qty">${escapeHtml(String(item.billed_quantity))}</td>
+          <td class="amount">${receiptMoneyLabel(item.unit_price)}</td>
+          <td class="amount">${receiptMoneyLabel(item.line_total)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  printWindow.document.open();
+  printWindow.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>Renjz Kitchen Bill</title>
+        <style>
+          @page { size: 72mm auto; margin: 4mm; }
+          * { box-sizing: border-box; }
+          body {
+            width: 64mm;
+            margin: 0;
+            color: #000;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            line-height: 1.25;
+          }
+          h1, h2, p { margin: 0; }
+          .center { text-align: center; }
+          .shop { font-size: 18px; font-weight: 800; letter-spacing: 0; }
+          .title { margin-top: 8px; font-size: 13px; font-weight: 800; }
+          .meta { margin-top: 8px; }
+          .rule { border-top: 1px dashed #000; margin: 8px 0; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          col.item-col { width: 42%; }
+          col.qty-col { width: 10%; }
+          col.rate-col { width: 22%; }
+          col.total-col { width: 26%; }
+          th, td { padding: 3px 1px; vertical-align: top; text-align: right; }
+          th:first-child, td:first-child { text-align: left; }
+          th { font-size: 10px; font-weight: 800; }
+          td:first-child strong {
+            display: block;
+            overflow-wrap: break-word;
+            word-break: normal;
+          }
+          .qty { text-align: center; white-space: nowrap; }
+          .amount { font-size: 10px; white-space: nowrap; }
+          td span { display: block; font-size: 10px; }
+          .totals div { display: flex; justify-content: space-between; margin: 3px 0; }
+          .total { font-size: 15px; font-weight: 800; }
+          .footer { margin-top: 10px; text-align: center; font-weight: 700; }
+          @media print {
+            body { width: 64mm; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="center">
+          <h1 class="shop">RENJZ KITCHEN</h1>
+          <p>Bhuvanappa layout, 30, 31, 32</p>
+          <p>2nd cross road, Tavarekere Main Rd</p>
+          <p>DRC Post, Bengaluru, Karnataka 560029</p>
+          <p>Phone: 9400204473</p>
+          <h2 class="title">BILL</h2>
+        </div>
+        <div class="rule"></div>
+        <div class="meta">
+          <p>Table: ${escapeHtml(billing.table_name)}</p>
+          <p>Seats: ${escapeHtml(billing.seat_label || "")}</p>
+          <p>Bill No: ${escapeHtml(String(billing.order_id))}</p>
+          <p>Printed: ${escapeHtml(new Date().toLocaleString())}</p>
+        </div>
+        <div class="rule"></div>
+        <table>
+          <colgroup>
+            <col class="item-col" />
+            <col class="qty-col" />
+            <col class="rate-col" />
+            <col class="total-col" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Rate</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan="4">No billable items</td></tr>`}
+          </tbody>
+        </table>
+        <div class="rule"></div>
+        <div class="totals">
+          <div><span>Subtotal</span><strong>${receiptMoneyLabel(billing.subtotal)}</strong></div>
+          <div><span>Discount</span><strong>${receiptMoneyLabel(billing.discount)}</strong></div>
+          <div class="total"><span>Total</span><strong>${receiptMoneyLabel(billing.final_total)}</strong></div>
+        </div>
+        <p class="footer">THANK YOU. VISIT AGAIN.</p>
+        <script>
+          window.addEventListener("load", () => {
+            window.focus();
+            window.print();
+          });
+        <\/script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+function receiptMoneyLabel(value) {
+  return `Rs${Number(value || 0).toFixed(2)}`;
 }
 
 async function execute(label, work, options = {}) {

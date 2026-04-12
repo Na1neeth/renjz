@@ -1,11 +1,21 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+APP_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = APP_DIR.parent
+PROJECT_DIR = BACKEND_DIR.parent
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(PROJECT_DIR / ".env", BACKEND_DIR / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = Field(default="Renjz Kitchen", alias="APP_NAME")
     api_prefix: str = Field(default="/api", alias="API_PREFIX")
@@ -20,6 +30,7 @@ class Settings(BaseSettings):
     receipt_printer_name: str = Field(default="", alias="RECEIPT_PRINTER_NAME")
     receipt_printer_timeout_seconds: float = Field(default=3.0, alias="RECEIPT_PRINTER_TIMEOUT_SECONDS")
     receipt_printer_chars_per_line: int = Field(default=42, alias="RECEIPT_PRINTER_CHARS_PER_LINE")
+    receipt_printer_cups_raw: bool = Field(default=False, alias="RECEIPT_PRINTER_CUPS_RAW")
     receipt_shop_name: str = Field(default="RENJZ KITCHEN", alias="RECEIPT_SHOP_NAME")
     receipt_address_lines: list[str] = Field(
         default=[

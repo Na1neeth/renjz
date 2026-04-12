@@ -75,6 +75,7 @@ def send_network_receipt_payload(payload: bytes, *, host: str, port: int, timeou
 
 
 def send_cups_receipt_payload(payload: bytes, *, printer_name: str, timeout_seconds: float, success_label: str) -> dict:
+    settings = get_settings()
     if not printer_name:
         return {
             "receipt_printed": False,
@@ -89,9 +90,26 @@ def send_cups_receipt_payload(payload: bytes, *, printer_name: str, timeout_seco
         }
 
     try:
+        command = [lp_path, "-d", printer_name]
+        lp_input = payload
+        if settings.receipt_printer_cups_raw:
+            command.extend(["-o", "raw"])
+        else:
+            command.extend(
+                [
+                    "-o",
+                    "PageCutType=1PartialCutPage",
+                    "-o",
+                    "DocCutType=1PartialCutDoc",
+                    "-o",
+                    "FeedCutAfterJobEnd=3Line",
+                ]
+            )
+            lp_input = escpos_payload_to_text(payload).encode("utf-8")
+
         completed = subprocess.run(
-            [lp_path, "-d", printer_name, "-o", "raw"],
-            input=payload,
+            command,
+            input=lp_input,
             capture_output=True,
             timeout=max(timeout_seconds, 1.0),
             check=False,
@@ -118,6 +136,37 @@ def send_cups_receipt_payload(payload: bytes, *, printer_name: str, timeout_seco
         "receipt_printed": True,
         "receipt_message": f"{success_label} sent to printer queue '{printer_name}'.",
     }
+
+
+def escpos_payload_to_text(payload: bytes) -> str:
+    lines: list[str] = []
+    current: list[str] = []
+    index = 0
+
+    while index < len(payload):
+        value = payload[index]
+        if value == 0x1B:
+            command = payload[index + 1] if index + 1 < len(payload) else None
+            index += 3 if command in {0x61, 0x45} else 2
+            continue
+        if value == 0x1D:
+            index += 3
+            continue
+        if value in {0x0A, 0x0D}:
+            line = "".join(current).rstrip()
+            lines.append(line)
+            current = []
+            index += 1
+            continue
+        if 32 <= value <= 126:
+            current.append(chr(value))
+        index += 1
+
+    if current:
+        lines.append("".join(current).rstrip())
+
+    text = "\n".join(line for line in lines if line.strip())
+    return f"{text}\n\n\n"
 
 
 def build_bill_payload(order, *, snapshot: dict, actor_name: str) -> bytes:
@@ -193,7 +242,7 @@ def build_document_payload(
     for line in settings.receipt_address_lines:
         lines.extend(center_text(line, width=width))
     if settings.receipt_phone.strip():
-        lines.extend(center_text(f"Telp.: {settings.receipt_phone.strip()}", width=width))
+        lines.extend(center_text(f"Phone: {settings.receipt_phone.strip()}", width=width))
     lines.append(text_line(divider))
     lines.extend(center_text(title, width=width, emphasized=True))
     lines.append(text_line(divider))
